@@ -1,0 +1,77 @@
+# ==========================================
+# Node.js / Frontend
+# ==========================================
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+.vercel
+pnpm-lock.yaml
+.pnpm-store/
+
+# ==========================================
+# Supabase & Docker
+# ==========================================
+.supabase/
+docker-compose.override.yml
+.docker/
+
+# ==========================================
+# Python / Backend
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+*.egg
+dist/
+.eggs/
+
+# ==========================================
+# Environment & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# IDE & Editor
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+.nyc_output/
+
+# ==========================================
+# Misc
+# ==========================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+_bmad
+_bmad-output
+.agent
+.qwen
+design-artifacts
+docs
+QWEN.md

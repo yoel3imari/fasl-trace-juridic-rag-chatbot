@@ -1,4 +1,4 @@
-# precise-rag
+# Fasl Trace
 
 **High-Fidelity Legal RAG Engine** — An auditable split-pane workspace for Commercial Contracts and Delaware Case Law. Every LLM claim is traced back to its exact bounding box in the source PDF.
 

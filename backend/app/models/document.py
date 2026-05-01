@@ -1,20 +1,10 @@
-"""
-Document model — tracks uploaded PDF documents and their ingestion status.
-"""
-
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Integer, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
 
 
 class Document(BaseModel):
-    """
-    Represents an uploaded PDF document.
-
-    Table: documents (plural snake_case per naming convention)
-    """
-
     __tablename__ = "documents"
 
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -30,3 +20,15 @@ class Document(BaseModel):
         server_default="pending",
         comment="pending | processing | processed | failed",
     )
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detected_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    chunks = relationship(
+        "DocumentChunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+from app.models.chunk import DocumentChunk

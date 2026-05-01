@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router_health import router as health_router
 from app.api.v1.router_document import router as document_router
+from app.api.v1.router_collection import router as collection_router
 from app.core.config import get_settings, Settings
 from app.core.database import startup_db, shutdown_db
 
@@ -71,3 +72,4 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(document_router, prefix="/api/v1")
+app.include_router(collection_router, prefix="/api/v1")

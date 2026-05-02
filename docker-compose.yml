@@ -8,6 +8,68 @@
 # =========================================================================
 
 services:
+  # ── Milvus Vector Database ──────────────────────────────────────────
+  etcd:
+    container_name: precise-rag-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    networks:
+      - precise-rag-net
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    container_name: precise-rag-minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    networks:
+      - precise-rag-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus:
+    container_name: precise-rag-milvus
+    image: milvusdb/milvus:v2.4.0
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    networks:
+      - precise-rag-net
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
   # ── PostgreSQL ──────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
@@ -42,9 +104,12 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/precise_rag
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:password@db_test:5432/test_precise_rag
+      OPENAPI_OUTPUT_FILE: ./shared-data/openapi.json
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
+      - ./local-shared-data:/app/shared-data
     networks:
       - precise-rag-net
     depends_on:
@@ -64,22 +129,56 @@ services:
       - .env
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      OPENAPI_OUTPUT_FILE: ./shared-data/openapi.json
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
       - frontend_next:/app/.next
+      - pnpm_store:/app/.pnpm-store
+      - ./local-shared-data:/app/shared-data
     networks:
       - precise-rag-net
     depends_on:
       - backend
 
+  # ── Test Database ──────────────────────────────────────────────────────
+  db_test:
+    image: postgres:16-alpine
+    container_name: precise-rag-db-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: test_precise_rag
+    ports:
+      - "5433:5432"
+    networks:
+      - precise-rag-net
+
+  # ── MailHog (dev email) ────────────────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog
+    container_name: precise-rag-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - precise-rag-net
+
 # ── Volumes ─────────────────────────────────────────────────────────────
 volumes:
+  etcd_data:
+    driver: local
+  minio_data:
+    driver: local
+  milvus_data:
+    driver: local
   postgres_data:
     driver: local
   backend_venv:
     driver: local
   frontend_node_modules:
+    driver: local
+  pnpm_store:
     driver: local
   frontend_next:
     driver: local

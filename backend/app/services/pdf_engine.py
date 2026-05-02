@@ -14,12 +14,14 @@ class TextBlock:
     page: int
     bounding_box: list[float]
     block_index: int
+    text_direction: str = "ltr"
 
 
 @dataclass
 class PDFMetadata:
     page_count: int
     language: str
+    detected_languages: list[str]
     title: str | None
     author: str | None
     creator: str | None
@@ -31,6 +33,7 @@ class ExtractionResult:
     status: str
     metadata: PDFMetadata
     chunks: list[TextBlock]
+    failed_blocks: int = 0
     error: str | None = None
 
 
@@ -68,6 +71,84 @@ def detect_language_from_text(text: str) -> str:
     if french_count > 0:
         return "fr"
     return "en"
+
+
+def detect_text_direction(text: str) -> str:
+    """Classify text direction for French/Arabic documents.
+
+    Counts Arabic-script characters vs all alphabetic characters.
+    Returns 'rtl' if >70% are Arabic, 'ltr' if <30% are Arabic,
+    otherwise 'mixed' (bilingual document).
+
+    Whitespace-only or empty strings default to 'ltr'.
+    Non-Arabic alphabetic characters (including French accented chars)
+    are treated as LTR — this is correct for the French/Arabic domain.
+    """
+    if not text or not text.strip():
+        return "ltr"
+
+    arabic_ranges = [
+        (0x0600, 0x06FF),   # Arabic
+        (0x0750, 0x077F),   # Arabic Supplement
+        (0x08A0, 0x08FF),   # Arabic Extended-A
+        (0xFB50, 0xFDFF),   # Arabic Presentation Forms-A
+        (0xFE70, 0xFEFF),   # Arabic Presentation Forms-B
+        (0x10E60, 0x10E7F), # Rumi
+        (0x1EE00, 0x1EEFF), # Arabic Mathematical
+    ]
+
+    arabic_count = 0
+    other_alpha_count = 0
+
+    for char in text:
+        code = ord(char)
+        if any(start <= code <= end for start, end in arabic_ranges):
+            arabic_count += 1
+        elif code >= 0x0041:
+            # All non-Arabic alphabetic: Latin, Greek, Cyrillic,
+            # French accented chars (Latin Extended), etc.
+            # Excludes digits, punctuation, symbols below 0x0041.
+            other_alpha_count += 1
+
+    total = arabic_count + other_alpha_count
+    if total == 0:
+        return "ltr"
+
+    arabic_ratio = arabic_count / total
+    if arabic_ratio > 0.7:
+        return "rtl"
+    elif arabic_ratio < 0.3:
+        return "ltr"
+    return "mixed"
+
+
+def detect_document_languages(block_texts: list[str]) -> list[str]:
+    """Infer document-level languages from a sample of block texts.
+
+    Uses detect_language_from_text per block and deduplicates results.
+    Returns sorted list of ISO 639-1 codes found (e.g., ['ar', 'en']).
+    Defaults to ['en'] for empty input.
+    """
+    if not block_texts:
+        return ["en"]
+
+    languages = set()
+    # Sample evenly across all blocks to catch languages appearing after page 1
+    stride = max(1, len(block_texts) // 20)
+    for text in block_texts[::stride]:
+        lang = detect_language_from_text(text)
+        languages.add(lang)
+
+    return sorted(languages)
+
+
+def _safe_detect_text_direction(text: str) -> str:
+    """Call detect_text_direction with per-block fallback on exception."""
+    try:
+        return detect_text_direction(text)
+    except (ValueError, TypeError):
+        logger.warning("detect_text_direction failed for block, defaulting to 'ltr'", exc_info=True)
+        return "ltr"
 
 
 def convert_bbox(fitz_bbox: tuple) -> list[float]:
@@ -110,34 +191,44 @@ async def extract_text_with_boxes(
 
         chunks = []
         sample_texts: list[str] = []
+        failed_blocks = 0
         for page_num in range(page_count):
             page = doc[page_num]
 
             blocks = page.get_text("blocks")
             for block_idx, block in enumerate(blocks):
                 if len(block) >= 6:
-                    text = block[4]
-                    bbox = convert_bbox(block[:4])
+                    try:
+                        text = block[4]
+                        bbox = convert_bbox(block[:4])
 
-                    if not validate_bbox(bbox):
+                        if not validate_bbox(bbox):
+                            logger.warning(
+                                "Skipping block with invalid bbox on page %d, block %d: %s",
+                                page_num + 1, block_idx, bbox,
+                            )
+                            continue
+
+                        if page_num == 0 and len(sample_texts) < 3 and text.strip():
+                            sample_texts.append(text)
+
+                        if page_num == 0 and block_idx == 0 and not sample_texts and text.strip():
+                            sample_texts.append(text)
+
+                        chunks.append({
+                            "text": text,
+                            "page": page_num + 1,
+                            "bounding_box": bbox,
+                            "block_index": block_idx,
+                            "text_direction": _safe_detect_text_direction(text),
+                        })
+                    except Exception:
+                        failed_blocks += 1
                         logger.warning(
-                            "Skipping block with invalid bbox on page %d, block %d: %s",
-                            page_num + 1, block_idx, bbox,
+                            "Block %d on page %d failed: %s",
+                            block_idx, page_num + 1, block[4] if len(block) > 4 else "unknown",
+                            exc_info=True,
                         )
-                        continue
-
-                    if page_num == 0 and len(sample_texts) < 3 and text.strip():
-                        sample_texts.append(text)
-
-                    if page_num == 0 and block_idx == 0 and not sample_texts:
-                        sample_texts.append(text)
-
-                    chunks.append({
-                        "text": text,
-                        "page": page_num + 1,
-                        "bounding_box": bbox,
-                        "block_index": block_idx,
-                    })
 
             yield {"type": "progress", "content": f"page_{page_num + 1}/{page_count}"}
 
@@ -145,10 +236,14 @@ async def extract_text_with_boxes(
 
         if sample_texts:
             language = detect_language_from_text(" ".join(sample_texts))
+            detected_languages = detect_document_languages(sample_texts)
+        else:
+            detected_languages = ["en"]
 
         metadata = PDFMetadata(
             page_count=page_count,
             language=language,
+            detected_languages=detected_languages,
             title=pdf_meta.get("title"),
             author=pdf_meta.get("author"),
             creator=pdf_meta.get("creator"),
@@ -162,8 +257,10 @@ async def extract_text_with_boxes(
                 "metadata": {
                     "page_count": metadata.page_count,
                     "language": metadata.language,
+                    "detected_languages": detected_languages,
                 },
                 "chunk_count": len(chunks),
+                "failed_blocks": failed_blocks,
             },
         }
 
@@ -171,6 +268,7 @@ async def extract_text_with_boxes(
         yield {
             "type": "error",
             "content": str(e),
+            "failed_blocks": failed_blocks,
         }
 
 
@@ -184,6 +282,7 @@ async def process_document(
         language = "en"
         pdf_meta = doc.metadata
         all_blocks: list[TextBlock] = []
+        failed_blocks = 0
 
         sample_texts: list[str] = []
         for page_num in range(page_count):
@@ -192,37 +291,50 @@ async def process_document(
 
             for block_idx, block in enumerate(blocks):
                 if len(block) >= 6:
-                    text = block[4]
-                    bbox = convert_bbox(block[:4])
+                    try:
+                        text = block[4]
+                        bbox = convert_bbox(block[:4])
 
-                    if not validate_bbox(bbox):
+                        if not validate_bbox(bbox):
+                            logger.warning(
+                                "Skipping block with invalid bbox on page %d, block %d: %s",
+                                page_num + 1, block_idx, bbox,
+                            )
+                            continue
+
+                        if page_num == 0 and len(sample_texts) < 3 and text.strip():
+                            sample_texts.append(text)
+
+                        if page_num == 0 and block_idx == 0 and not sample_texts and text.strip():
+                            sample_texts.append(text)
+
+                        all_blocks.append(TextBlock(
+                            text=text,
+                            page=page_num + 1,
+                            bounding_box=bbox,
+                            block_index=block_idx,
+                            text_direction=_safe_detect_text_direction(text),
+                        ))
+                    except Exception:
+                        failed_blocks += 1
                         logger.warning(
-                            "Skipping block with invalid bbox on page %d, block %d: %s",
-                            page_num + 1, block_idx, bbox,
+                            "Block %d on page %d failed: %s",
+                            block_idx, page_num + 1, block[4] if len(block) > 4 else "unknown",
+                            exc_info=True,
                         )
-                        continue
-
-                    if page_num == 0 and len(sample_texts) < 3 and text.strip():
-                        sample_texts.append(text)
-
-                    if page_num == 0 and block_idx == 0 and not sample_texts:
-                        sample_texts.append(text)
-
-                    all_blocks.append(TextBlock(
-                        text=text,
-                        page=page_num + 1,
-                        bounding_box=bbox,
-                        block_index=block_idx,
-                    ))
 
         doc.close()
 
         if sample_texts:
             language = detect_language_from_text(" ".join(sample_texts))
+            detected_languages = detect_document_languages(sample_texts)
+        else:
+            detected_languages = ["en"]
 
         metadata = PDFMetadata(
             page_count=page_count,
             language=language,
+            detected_languages=detected_languages,
             title=pdf_meta.get("title"),
             author=pdf_meta.get("author"),
             creator=pdf_meta.get("creator"),
@@ -233,6 +345,7 @@ async def process_document(
             status="processed",
             metadata=metadata,
             chunks=all_blocks,
+            failed_blocks=failed_blocks,
             error=None,
         )
 
@@ -240,7 +353,8 @@ async def process_document(
         return ExtractionResult(
             document_id=document_id,
             status="failed",
-            metadata=PDFMetadata(page_count=0, language="en", title=None, author=None, creator=None),
+            metadata=PDFMetadata(page_count=0, language="en", detected_languages=["en"], title=None, author=None, creator=None),
             chunks=[],
+            failed_blocks=0,
             error=str(e),
         )

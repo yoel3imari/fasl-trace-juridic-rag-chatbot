@@ -22,8 +22,35 @@ class DocumentResponse(DocumentBase):
 
     id: UUID
     user_id: UUID
+    page_count: int | None = None
+    detected_languages: list[str] | None = None
     created_at: datetime
     updated_at: datetime | None = None
+
+
+class IngestionStatusResponse(BaseModel):
+    """Enriched document status response for ingestion dashboard."""
+
+    id: UUID
+    filename: str
+    submitted_language: str
+    status: str
+    page_count: int | None = None
+    chunk_count: int = 0
+    failed_blocks: int = 0
+    error_log: dict | None = None
+    detected_languages: list[str] | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class IngestionStatusListResponse(BaseModel):
+    """Paginated list of document ingestion statuses."""
+
+    documents: list[IngestionStatusResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class DocumentCreate(BaseModel):

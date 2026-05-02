@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, JSON, Text
+from sqlalchemy import ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +22,13 @@ class DocumentChunk(BaseModel):
     bounding_box: Mapped[list] = mapped_column(
         JSON,
         nullable=False,
+    )
+    text_direction: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="ltr",
+        server_default="ltr",
+        comment="rtl | ltr | mixed",
     )
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")

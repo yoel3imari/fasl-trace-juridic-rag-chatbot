@@ -5,8 +5,11 @@ Document router - PDF upload and management endpoints.
 import asyncio
 import logging
 import os
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
+from typing import Literal
 from http import HTTPStatus
 from io import BytesIO
 
@@ -27,8 +30,9 @@ from sqlalchemy import select, func
 
 from app.core.database import get_db_session_with_rls
 from app.core.security import get_current_user
-from app.schemas.document import DocumentResponse, DocumentListResponse
+from app.schemas.document import DocumentResponse, DocumentListResponse, IngestionStatusResponse, IngestionStatusListResponse
 from app.models.document import Document
+from app.models.chunk import DocumentChunk
 from app.core.config import get_settings, Settings
 from app.services.pdf_engine import process_document
 
@@ -175,10 +179,7 @@ async def upload_document(
     try:
         db.add(document)
         await db.commit()
-        try:
-            await db.refresh(document)
-        except Exception:
-            pass
+        await db.refresh(document)
         return document
     except Exception:
         await db.rollback()
@@ -214,12 +215,6 @@ async def process_document_endpoint(
             detail="Document not found or access denied.",
         )
 
-    if document.user_id != current_user["user_id"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to process this document.",
-        )
-
     if document.status not in ("pending", "failed"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -242,8 +237,16 @@ async def process_document_endpoint(
     # For production, consider making it sync and wrapping in run_in_threadpool.
     try:
         extraction = await process_document(pdf_path, document_id)
-    except Exception:
+    except Exception as e:
         document.status = "failed"
+        document.failed_blocks = 0
+        tb = traceback.format_exc()
+        document.error_log = {
+            "error_type": type(e).__name__,
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "traceback_summary": tb[:2000] + ("...[truncated]" if len(tb) > 2000 else ""),
+        }
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -252,24 +255,48 @@ async def process_document_endpoint(
 
     if extraction.status == "failed":
         document.status = "failed"
+        document.failed_blocks = extraction.failed_blocks
+        document.error_log = {
+            "error_type": "ExtractionFailed",
+            "message": extraction.error,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "traceback_summary": "",
+        }
         await db.commit()
         return {"status": "failed", "error": extraction.error}
 
-    from app.models.chunk import DocumentChunk
-    for chunk in extraction.chunks:
-        db_chunk = DocumentChunk(
-            document_id=document_id,
-            chunk_index=chunk.block_index,
-            page_number=chunk.page,
-            text=chunk.text,
-            bounding_box=chunk.bounding_box,
-        )
-        db.add(db_chunk)
+    try:
+        for chunk in extraction.chunks:
+            db_chunk = DocumentChunk(
+                document_id=document_id,
+                chunk_index=chunk.block_index,
+                page_number=chunk.page,
+                text=chunk.text,
+                bounding_box=chunk.bounding_box,
+                text_direction=chunk.text_direction,
+            )
+            db.add(db_chunk)
 
-    document.status = "processed"
-    document.page_count = extraction.metadata.page_count
-    document.detected_language = extraction.metadata.language
-    await db.commit()
+        document.status = "processed"
+        document.error_log = None
+        document.page_count = extraction.metadata.page_count
+        document.failed_blocks = extraction.failed_blocks
+        document.detected_languages = extraction.metadata.detected_languages
+        await db.commit()
+    except Exception as e:
+        document.status = "failed"
+        document.failed_blocks = extraction.failed_blocks
+        document.error_log = {
+            "error_type": type(e).__name__,
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "traceback_summary": "",
+        }
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save extracted chunks.",
+        )
 
     return {
         "status": "processed",
@@ -277,6 +304,7 @@ async def process_document_endpoint(
             "page_count": extraction.metadata.page_count,
             "language": extraction.metadata.language,
             "chunk_count": len(extraction.chunks),
+            "failed_blocks": extraction.failed_blocks,
         },
     }
 
@@ -291,9 +319,11 @@ async def list_documents(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db_session_with_rls),
+    current_user: dict = Depends(get_current_user),
 ):
     result = await db.execute(
         select(Document)
+        .where(Document.user_id == current_user["user_id"])
         .order_by(Document.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -301,12 +331,77 @@ async def list_documents(
     documents = result.scalars().all()
 
     count_result = await db.execute(
-        select(func.count(Document.id))
+        select(func.count(Document.id)).where(
+            Document.user_id == current_user["user_id"]
+        )
     )
     total = count_result.scalar_one()
 
     return {
         "documents": documents,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
+
+
+@router.get(
+    "/documents/ingestion-status",
+    response_model=IngestionStatusListResponse,
+    summary="Document Ingestion Status",
+    description="Retrieve ingestion status for all documents uploaded by the current user.",
+)
+async def get_ingestion_status(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    status_filter: Literal["pending", "processing", "processed", "failed"] | None = Query(None, alias="status"),
+    db: AsyncSession = Depends(get_db_session_with_rls),
+    current_user: dict = Depends(get_current_user),
+):
+    base_query = (
+        select(Document, func.count(DocumentChunk.id).label("chunk_count"))
+        .outerjoin(DocumentChunk)
+        .where(Document.user_id == current_user["user_id"])
+        .group_by(Document.id)
+    )
+
+    if status_filter:
+        base_query = base_query.where(Document.status == status_filter)
+
+    count_query = select(func.count(Document.id)).where(
+        Document.user_id == current_user["user_id"]
+    )
+    if status_filter:
+        count_query = count_query.where(Document.status == status_filter)
+
+    count_result = await db.execute(count_query)
+    total = count_result.scalar_one()
+
+    result = await db.execute(
+        base_query.order_by(Document.created_at.desc()).offset(skip).limit(limit)
+    )
+    rows = result.all()
+
+    ingestion_statuses = []
+    for doc, chunk_count in rows:
+        ingestion_statuses.append(
+            IngestionStatusResponse(
+                id=doc.id,
+                filename=doc.filename,
+                submitted_language=doc.language,
+                status=doc.status,
+                page_count=doc.page_count,
+                chunk_count=chunk_count or 0,
+                failed_blocks=doc.failed_blocks,
+                error_log=doc.error_log,
+                detected_languages=doc.detected_languages,
+                created_at=doc.created_at,
+                updated_at=doc.updated_at,
+            )
+        )
+
+    return {
+        "documents": ingestion_statuses,
         "total": total,
         "skip": skip,
         "limit": limit,
@@ -322,10 +417,12 @@ async def list_documents(
 async def get_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db_session_with_rls),
+    current_user: dict = Depends(get_current_user),
 ):
     result = await db.execute(
         select(Document)
         .where(Document.id == document_id)
+        .where(Document.user_id == current_user["user_id"])
     )
     document = result.scalar_one_or_none()
 

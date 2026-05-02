@@ -19,9 +19,13 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_jwt_secret: str = ""
 
+    # ── Encryption ────────────────────────────────────────────────────────
+    encryption_key: str = ""
+
     # ── App ───────────────────────────────────────────────────────────────
     app_name: str = "precise-rag"
     debug: bool = False
+    openapi_url: str = "/openapi.json"
 
     model_config = {
         "env_file": "../.env",

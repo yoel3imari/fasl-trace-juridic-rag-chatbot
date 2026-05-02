@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String
+from sqlalchemy import Integer, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -22,6 +22,23 @@ class Document(BaseModel):
     )
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     detected_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    detected_languages: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="ISO 639-1 language codes detected in document (e.g. [\"ar\", \"en\"])",
+    )
+    error_log: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Structured error log for failed processing",
+    )
+    failed_blocks: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="Count of text blocks that failed extraction",
+    )
 
     chunks = relationship(
         "DocumentChunk",

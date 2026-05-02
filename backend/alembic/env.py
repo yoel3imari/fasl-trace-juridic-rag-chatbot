@@ -19,6 +19,9 @@ from app.models.base import Base
 # Import all models so Alembic can detect them for autogenerate
 from app.models.document import Document  # noqa: F401
 from app.models.collection import Collection, document_collections  # noqa: F401
+from app.models.chunk import DocumentChunk  # noqa: F401
+from app.models.llm_provider import LLMProvider  # noqa: F401
+from app.models.model_assignment import ModelAssignment  # noqa: F401
 
 # Alembic Config object
 config = context.config

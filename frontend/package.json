@@ -2,11 +2,14 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.7.1+sha512.2d92c86b7928dc8284f53494fb4201f983da65f0fb4f0d40baafa5cf628fa31dae3e5968f12466f17df7e97310e30f343a648baea1b9b350685dafafffdf5808",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate-client": "openapi-ts",
+    "test": "jest"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",
@@ -16,16 +19,28 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.5.0",
+    "zod": "^3.23.8",
+    "@hookform/resolvers": "^3.9.1",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@hey-api/client-fetch": "^0.13.1",
+    "@hey-api/openapi-ts": "^0.83.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "chokidar": "^4.0.1",
+    "dotenv": "^16.4.7",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "jest": "^29.7.0",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "jest-environment-jsdom": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "@types/jest": "^29.5.14"
   }
 }

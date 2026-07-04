@@ -1,0 +1,60 @@
+import os
+import re
+import subprocess
+import time
+from pathlib import Path
+from threading import Timer
+
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
+WATCHER_REGEX_PATTERN = re.compile(r"(main\.py|schemas/.*\.py|api/.*\.py)$")
+APP_PATH = "app"
+
+
+class MyHandler(FileSystemEventHandler):
+    def __init__(self):
+        super().__init__()
+        self.debounce_timer = None
+        self.last_modified = 0
+
+    def on_modified(self, event):
+        if not event.is_directory and WATCHER_REGEX_PATTERN.search(
+            os.path.relpath(event.src_path, APP_PATH)
+        ):
+            current_time = time.time()
+            if current_time - self.last_modified > 1:
+                self.last_modified = current_time
+                if self.debounce_timer:
+                    self.debounce_timer.cancel()
+                self.debounce_timer = Timer(1.0, self.execute_command, [event.src_path])
+                self.debounce_timer.start()
+
+    def execute_command(self, file_path):
+        print(f"\033[34mFile {file_path} has been modified.\033[0m")
+        self.run_openapi_schema_generation()
+
+    def run_openapi_schema_generation(self):
+        print("\033[33mRegenerating OpenAPI schema...\033[0m")
+        try:
+            subprocess.run(
+                ["uv", "run", "python", "-m", "commands.generate_openapi_schema"],
+                check=True,
+            )
+            print("\033[32mOpenAPI schema generated successfully.\033[0m")
+        except subprocess.CalledProcessError as e:
+            print(f"\033[31mError generating OpenAPI schema: {e}\033[0m")
+
+
+if __name__ == "__main__":
+    observer = Observer()
+    observer.schedule(MyHandler(), APP_PATH, recursive=True)
+    observer.start()
+    print("\033[36m👁️  Watcher started — monitoring app/ for changes\033[0m")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+        print("\033[36mWatcher stopped.\033[0m")
+    observer.join()

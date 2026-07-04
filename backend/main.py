@@ -13,6 +13,7 @@ from app.api.v1.router_document import router as document_router
 from app.api.v1.router_collection import router as collection_router
 from app.api.v1.router_llm_provider import router as llm_provider_router
 from app.api.v1.router_model_assignment import router as model_assignment_router
+from app.api.v1.router_chat import router as chat_router
 from app.core.config import get_settings, Settings
 from app.core.database import startup_db, shutdown_db
 from app.utils import simple_generate_unique_route_id
@@ -82,3 +83,4 @@ app.include_router(document_router, prefix="/api/v1")
 app.include_router(collection_router, prefix="/api/v1")
 app.include_router(llm_provider_router, prefix="/api/v1")
 app.include_router(model_assignment_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")

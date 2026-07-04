@@ -1,0 +1,21 @@
+[run]
+source = app
+omit =
+    tests/*
+    alembic/*
+    commands/*
+    app/__init__.py
+    app/api/__init__.py
+    app/api/v1/__init__.py
+    app/core/__init__.py
+    app/models/__init__.py
+    app/schemas/__init__.py
+    app/services/__init__.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:

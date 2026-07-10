@@ -147,7 +147,7 @@ Smoke tests verify that server actions and Zod schemas import and behave correct
 ## Project Structure
 
 ```
-precise-rag/
+legal-rag/
 ├── frontend/              # Next.js application
 │   ├── jest.config.ts     # Jest configuration
 │   ├── jest.setup.ts      # Jest setup (Testing Library matchers)

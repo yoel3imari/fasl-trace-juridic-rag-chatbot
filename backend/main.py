@@ -1,5 +1,5 @@
 """
-precise-rag backend — FastAPI entry point.
+legal-rag backend — FastAPI entry point.
 """
 
 import os
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
 settings = get_settings()
 
 app = FastAPI(
-    title="precise-rag",
+    title="legal-rag",
     description="High-Fidelity Legal RAG Engine API",
     version="0.1.0",
     lifespan=lifespan,

@@ -29,7 +29,7 @@ function WelcomePlaceholder() {
       <h2 className="text-xl font-semibold text-slate-50">Welcome to Fasl Trace</h2>
       <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
         Select a document collection to begin analysis. Ask questions about your
-        documents and get answers with precise citations back to the source.
+        documents and get answers with legal citations back to the source.
       </p>
     </div>
   );

@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "precise-rag",
+    "title": "legal-rag",
     "description": "High-Fidelity Legal RAG Engine API",
     "version": "0.1.0"
   },

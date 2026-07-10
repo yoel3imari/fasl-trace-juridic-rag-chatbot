@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { useChatStore } from "@/store/useChatStore";
+import { useChatStream } from "@/hooks/useChatStream";
 
 const MAX_ROWS = 6;
 const ENTER_KEY = "Enter";
@@ -14,6 +15,7 @@ export function ChatInput() {
   const addUserMessage = useChatStore((s) => s.addUserMessage);
   const startAssistantMessage = useChatStore((s) => s.startAssistantMessage);
   const streamingStatus = useChatStore((s) => s.workspace.streamingStatus);
+  const { startStream } = useChatStream();
 
   const isDisabled = streamingStatus !== "idle";
 
@@ -23,6 +25,7 @@ export function ChatInput() {
     setValue("");
     addUserMessage(trimmed);
     startAssistantMessage();
+    startStream(trimmed, undefined);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

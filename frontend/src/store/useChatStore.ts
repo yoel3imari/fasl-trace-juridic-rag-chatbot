@@ -10,9 +10,15 @@ const generateId = (): string => {
 
 // ── Message Types (SSE contract accommodation for Story 3.3) ──────────
 
-export interface CitationGeometry {
+/**
+ * Citation matching the backend's RetrievalResult format (v1 — text-based).
+ * Bounding-box pinning (CitationGeometry) will replace this in a later phase.
+ */
+export interface Citation {
+  source_index: number;
   page: number;
-  box: [number, number, number, number]; // [x, y, w, h]
+  section: string | null;
+  text_snippet: string;
 }
 
 export interface ChatMessage {
@@ -20,8 +26,10 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   isStreaming?: boolean;
-  citations?: CitationGeometry[];
+  citations?: Citation[];
   hasUnverifiedClaim?: boolean;
+  error?: string;
+  warning?: string;
   timestamp: string;
 }
 
@@ -55,7 +63,7 @@ export interface WorkspaceState {
 // ── Combined Store Interface ────────────────────────────────
 
 interface ChatState {
-  activeCitation: CitationGeometry | null;
+  activeCitation: Citation | null;
   workspace: WorkspaceState;
 
   // Derived getters (computed, not stored state)
@@ -63,7 +71,7 @@ interface ChatState {
   getSessionMessageCount: () => number;
 
   // Core actions
-  setActiveCitation: (citation: CitationGeometry | null) => void;
+  setActiveCitation: (citation: Citation | null) => void;
   clearSession: () => void;
 
   // Workspace actions
@@ -80,8 +88,13 @@ interface ChatState {
   appendToken: (messageId: string, tokenContent: string) => void;
   updateProcessingStep: (stepId: string, status: "pending" | "active" | "complete") => void;
   finalizeMessage: (messageId: string) => void;
-  setMessageCitations: (messageId: string, citations: CitationGeometry[]) => void;
+  setMessageCitations: (messageId: string, citations: Citation[]) => void;
   setStreamingStatus: (status: "idle" | "processing" | "streaming" | "complete" | "error") => void;
+
+  // SSE integration actions
+  setProcessingSteps: (steps: ProcessingStep[]) => void;
+  setStreamError: (messageId: string, error: string) => void;
+  getCurrentStreamingMessageId: () => string | null;
 }
 
 // ── Default workspace state ─────────────────────────────────
@@ -301,4 +314,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       workspace: { ...state.workspace, streamingStatus: status },
     })),
+
+  setProcessingSteps: (steps) =>
+    set((state) => ({
+      workspace: { ...state.workspace, processingSteps: steps },
+    })),
+
+  setStreamError: (messageId, error) =>
+    set((state) => {
+      const exists = state.workspace.messages.some((m) => m.id === messageId);
+      if (!exists) return state;
+      return {
+        workspace: {
+          ...state.workspace,
+          messages: state.workspace.messages.map((msg) =>
+            msg.id === messageId ? { ...msg, error, isStreaming: false } : msg
+          ),
+          currentStreamingMessageId: null,
+          streamingStatus: "error",
+        },
+      };
+    }),
+
+  getCurrentStreamingMessageId: () => get().workspace.currentStreamingMessageId,
 }));

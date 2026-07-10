@@ -1,6 +1,6 @@
 # Plan: Adopt `nextjs-fastapi-template` Practices (No Vercel)
 
-**Target**: Bring `precise-rag` in line with production patterns from [vintasoftware/nextjs-fastapi-template](https://github.com/vintasoftware/nextjs-fastapi-template), excluding Vercel deployment.
+**Target**: Bring `legal-rag` in line with production patterns from [vintasoftware/nextjs-fastapi-template](https://github.com/vintasoftware/nextjs-fastapi-template), excluding Vercel deployment.
 
 **Date**: 2026-05-02
 
@@ -45,7 +45,7 @@
 - `backend/main.py` — Add `openapi_url` and `generate_unique_id_function`:
   ```python
   app = FastAPI(
-      title="precise-rag",
+      title="legal-rag",
       openapi_url=settings.OPENAPI_URL,
       generate_unique_id_function=simple_generate_unique_route_id,
       ...
@@ -347,24 +347,24 @@ repos:
 ```yaml
 db_test:
   image: postgres:16-alpine
-  container_name: precise-rag-db-test
+  container_name: legal-rag-db-test
   environment:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: password
-    POSTGRES_DB: test_precise_rag
+    POSTGRES_DB: test_legal_rag
   ports:
     - "5433:5432"
   networks:
-    - precise-rag-net
+    - legal-rag-net
 
 mailhog:
   image: mailhog/mailhog
-  container_name: precise-rag-mailhog
+  container_name: legal-rag-mailhog
   ports:
     - "1025:1025"  # SMTP
     - "8025:8025"  # Web UI
   networks:
-    - precise-rag-net
+    - legal-rag-net
 ```
 
 Add `TEST_DATABASE_URL` to backend service env and `.env.example`.

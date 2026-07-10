@@ -1,10 +1,10 @@
 "use client";
 
-import { Component, memo, useCallback, useEffect, useState } from "react";
+import { Component, memo, useCallback, useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useChatStore } from "@/store/useChatStore";
+import { useChatStore, Citation } from "@/store/useChatStore";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -136,6 +136,9 @@ function DocumentPaneInner() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const windowWidth = useWindowWidth();
   const pageWidth = Math.min(windowWidth * 0.55, 800);
+  const activeCitation: Citation | null = useChatStore((s) => s.activeCitation);
+  const setActiveCitation = useChatStore((s) => s.setActiveCitation);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const onDocumentLoadSuccess = useCallback(
     ({ numPages: pages }: { numPages: number }) => {
@@ -161,6 +164,14 @@ function DocumentPaneInner() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!activeCitation) return;
+    const pageEl = scrollRef.current?.querySelector(
+      `[data-page-number="${activeCitation.page}"]`
+    );
+    pageEl?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [activeCitation]);
+
   const handleRetry = useCallback(() => {
     setLoadError(null);
     setNumPages(0);
@@ -175,9 +186,13 @@ function DocumentPaneInner() {
   }
 
   return (
-    <div className="h-full bg-white" dir="ltr">
+    <div
+      className="h-full bg-white"
+      dir="ltr"
+      onClick={() => setActiveCitation(null)}
+    >
       <ScrollArea className="h-full">
-        <div className="flex flex-col items-center py-4">
+        <div ref={scrollRef} className="flex flex-col items-center py-4">
           <Document
             file={pdfUrl}
             onLoadSuccess={onDocumentLoadSuccess}

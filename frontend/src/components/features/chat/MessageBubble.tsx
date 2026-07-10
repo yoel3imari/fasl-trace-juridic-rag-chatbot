@@ -1,8 +1,8 @@
 "use client";
 
-import { ChatMessage } from "@/store/useChatStore";
+import { ChatMessage, useChatStore } from "@/store/useChatStore";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
-import { User, MessageSquare } from "lucide-react";
+import { User, MessageSquare, AlertTriangle, AlertCircle } from "lucide-react";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -10,6 +10,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, direction }: MessageBubbleProps) {
+  const setActiveCitation = useChatStore((s) => s.setActiveCitation);
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -52,20 +53,33 @@ export function MessageBubble({ message, direction }: MessageBubbleProps) {
           {message.content}
         </span>
 
-        {message.citations?.map((_, i) => (
-          <span
+        {/* Error banner */}
+        {message.error && (
+          <div className="mt-2 flex items-start gap-2 rounded-md bg-rose-900/50 border border-rose-700 px-3 py-2">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-rose-400" />
+            <span className="text-sm text-rose-200">{message.error}</span>
+          </div>
+        )}
+
+        {/* Warning banner */}
+        {message.warning && (
+          <div className="mt-2 flex items-start gap-2 rounded-md bg-amber-900/50 border border-amber-700 px-3 py-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+            <span className="text-sm text-amber-200">{message.warning}</span>
+          </div>
+        )}
+
+        {/* Citation badges */}
+        {message.citations?.map((citation, i) => (
+          <button
             key={i}
-            className="inline-block mx-0.5 px-1.5 py-0.5 rounded text-xs bg-slate-600 text-slate-400"
+            onClick={() => setActiveCitation(citation)}
+            className="inline-block mx-0.5 px-1.5 py-0.5 rounded text-xs bg-slate-600 text-slate-400 cursor-pointer hover:bg-slate-500 hover:text-slate-200 transition-colors"
             data-citation-id={`${message.id}-${i}`}
           >
             [{i + 1}]
-          </span>
+          </button>
         ))}
-
-        {/* Unverified claim warning */}
-        {message.hasUnverifiedClaim && (
-          <span className="ms-1 text-amber-400 text-xs">⚠</span>
-        )}
 
         {/* Timestamp */}
         <div className="mt-1 text-[10px] text-slate-500 text-start">

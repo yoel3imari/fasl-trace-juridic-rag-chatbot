@@ -282,6 +282,27 @@ async def process_document_endpoint(
         document.page_count = extraction.metadata.page_count
         document.failed_blocks = extraction.failed_blocks
         document.detected_languages = extraction.metadata.detected_languages
+
+        # Run vector pipeline (non-fatal if it fails — document is still "processed")
+        try:
+            from app.services.pipeline_service import run_vector_pipeline
+            user_id_int = abs(hash(str(current_user["user_id"])))
+            vector_status = await run_vector_pipeline(
+                extraction=extraction,
+                user_id=user_id_int,
+                document_id=document.id,
+            )
+            document.status = vector_status
+        except Exception as vec_err:
+            logger.warning(
+                "Vector pipeline failed for document %s: %s", document.id, vec_err,
+            )
+            document.error_log = {
+                "error_type": "VectorizationFailed",
+                "message": str(vec_err),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
         await db.commit()
     except Exception as e:
         document.status = "failed"

@@ -1,3 +1,15 @@
 node_modules
 .next
+.git
+.gitignore
+Dockerfile
+Dockerfile.dev
+README.md
+AGENTS.md
+CLAUDE.md
+jest.config.ts
+jest.setup.ts
+tsconfig.tsbuildinfo
+.env.local
+__tests__
 npm-debug.log*

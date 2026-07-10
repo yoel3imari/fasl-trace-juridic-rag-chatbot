@@ -3,3 +3,10 @@ __pycache__
 .venv
 .pytest_cache
 .coverage
+.git
+.gitignore
+Dockerfile
+Dockerfile.dev
+README.md
+.coveragerc
+tests/

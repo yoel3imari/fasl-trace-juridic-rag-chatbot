@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/opt/CrispEmbed/build \
     && find build -type d -name CMakeFiles -exec rm -rf {} + 2>/dev/null || true \
     && strip --strip-unneeded build/*.so* 2>/dev/null || true
 
-# ── STAGE 2: Python dependency builder ─────────────────────────────────────
+# ── STAGE 2: Python dependency builder (WITH dev deps) ─────────────────────
 FROM python:3.12-slim-bookworm AS venv-builder
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -33,9 +33,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 
+# Include dev dependencies (watchdog for watcher.py, etc.)
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /app/.venv && \
-    uv sync --frozen --no-dev --python /app/.venv/bin/python
+    uv sync --frozen --python /app/.venv/bin/python
 
 # ── STAGE 3: runtime ────────────────────────────────────────────────────────
 FROM python:3.12-slim-bookworm AS runtime
@@ -51,7 +52,7 @@ ENV PYTHONUNBUFFERED=1 \
     TOKENIZERS_PARALLELISM=false \
     PYTHONPATH="/opt/CrispEmbed/python:${PYTHONPATH}" \
     LD_LIBRARY_PATH="/opt/CrispEmbed/build:${LD_LIBRARY_PATH}" \
-    APP_ENV=production
+    APP_ENV=development
 
 # libgomp1 for OpenMP threading (used by crispembed / ggml)
 # libpq-dev for asyncpg
@@ -72,8 +73,10 @@ COPY --from=crispembed-builder /opt/CrispEmbed/build /opt/CrispEmbed/build
 WORKDIR /app
 
 # Copy application code
+COPY start.sh ./
 COPY app/ app/
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# start.sh runs uvicorn --reload + watcher.py for hot-reload
+CMD ["sh", "start.sh"]

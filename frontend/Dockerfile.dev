@@ -1,0 +1,17 @@
+FROM node:20-alpine AS dev
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@10 --activate
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+ENV HOSTNAME="0.0.0.0" \
+    PORT=3000 \
+    NODE_ENV=development
+
+EXPOSE 3000
+
+CMD ["sh", "start.sh"]

@@ -40,7 +40,7 @@ from app.services.pdf_engine import process_document
 router = APIRouter(tags=["documents"])
 
 
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "backend/uploads"))
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 
 MAX_FILENAME_LENGTH = 210
 MIN_FILE_SIZE = 1024

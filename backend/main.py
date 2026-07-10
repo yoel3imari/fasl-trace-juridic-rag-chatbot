@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     
     # Create upload directory on startup (not at import time)
     # This avoids crashes if the process lacks disk permissions
-    upload_dir = Path(os.getenv("UPLOAD_DIR", "backend/uploads"))
+    upload_dir = Path(os.getenv("UPLOAD_DIR", "uploads"))
     try:
         upload_dir.mkdir(parents=True, exist_ok=True)
         if app.state.settings.debug:

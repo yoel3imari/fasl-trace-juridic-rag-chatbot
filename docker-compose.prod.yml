@@ -1,13 +1,12 @@
 # =========================================================================
-# legal-rag — Docker Compose (Development)
+# legal-rag — Docker Compose (Production)
 # =========================================================================
-# Hot-reload enabled. Source code mounted as volumes — edits reflect
-# immediately in the containers (uvicorn --reload + Next.js HMR).
+# Optimized for deployment. No source mounts, no dev-only services.
+# Builds from production Dockerfiles (multi-stage, lean images).
 #
 # Usage:
-#   cp .env.example .env   # fill in your values
-#   docker compose up -d
-#   docker compose logs -f
+#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml logs -f
 # =========================================================================
 
 services:
@@ -30,19 +29,21 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   minio:
     container_name: legal-rag-minio
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-    ports:
-      - "9001:9001"
-      - "9000:9000"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    # No host port binding in prod — only internal network access
     volumes:
       - minio_data:/minio_data
-    command: minio server /minio_data --console-address ":9001"
+    command: minio server /minio_data
     networks:
       - legal-rag-net
     healthcheck:
@@ -50,6 +51,10 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   milvus:
     container_name: legal-rag-milvus
@@ -62,9 +67,7 @@ services:
       MINIO_ADDRESS: minio:9000
     volumes:
       - milvus_data:/var/lib/milvus
-    ports:
-      - "19530:19530"
-      - "9091:9091"
+    # No host port binding in prod — accessed internally
     networks:
       - legal-rag-net
     depends_on:
@@ -72,6 +75,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
   # ── PostgreSQL ──────────────────────────────────────────────────────────
   postgres:
@@ -79,54 +86,69 @@ services:
     container_name: legal-rag-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: legal_rag
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-legal_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    # No host port binding in prod — accessed internally by backend
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - legal-rag-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d legal_rag"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-legal_rag}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
-  # ── FastAPI Backend (dev — hot reload) ──────────────────────────────────
+  # ── FastAPI Backend (production) ────────────────────────────────────────
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: legal-rag-api
     restart: unless-stopped
+    # Only expose if behind a reverse proxy — typically not exposed directly
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/legal_rag
-      TEST_DATABASE_URL: postgresql+asyncpg://postgres:password@db_test:5432/test_legal_rag
-      OPENAPI_OUTPUT_FILE: ./shared-data/openapi.json
-    volumes:
-      # Mount source code for hot-reload
-      - ./backend:/app
-      # Persist .venv across restarts (avoid re-installing)
-      - backend_venv:/app/.venv
-      # Shared directory for OpenAPI schema exchange
-      - ./local-shared-data:/app/shared-data
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-legal_rag}
+      # Use service names for internal Docker networking
+      MILVUS_HOST: ${MILVUS_HOST:-milvus}
+      MILVUS_PORT: ${MILVUS_PORT:-19530}
+    # No source mounts — code is baked into the image
     networks:
       - legal-rag-net
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── Next.js Frontend (dev — HMR) ────────────────────────────────────────
+  # ── Next.js Frontend (production) ────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: legal-rag-web
     restart: unless-stopped
     ports:
@@ -134,46 +156,24 @@ services:
     env_file:
       - .env
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      OPENAPI_OUTPUT_FILE: ./shared-data/openapi.json
-    volumes:
-      # Mount source code for HMR
-      - ./frontend:/app
-      # Persist node_modules across restarts
-      - frontend_node_modules:/app/node_modules
-      # Persist .next build cache for faster dev reboots
-      - frontend_next:/app/.next
-      # Persist pnpm store
-      - pnpm_store:/app/.pnpm-store
-      # Shared directory for OpenAPI schema exchange
-      - ./local-shared-data:/app/shared-data
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NODE_ENV: production
+    # No source mounts — code is baked into the image
     networks:
       - legal-rag-net
     depends_on:
-      - backend
-
-  # ── Test Database ──────────────────────────────────────────────────────
-  db_test:
-    image: postgres:16-alpine
-    container_name: legal-rag-db-test
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: test_legal_rag
-    ports:
-      - "5433:5432"
-    networks:
-      - legal-rag-net
-
-  # ── MailHog (dev email) ────────────────────────────────────────────────
-  mailhog:
-    image: mailhog/mailhog
-    container_name: legal-rag-mailhog
-    ports:
-      - "1025:1025"  # SMTP
-      - "8025:8025"  # Web UI
-    networks:
-      - legal-rag-net
+      backend:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 # ── Volumes ─────────────────────────────────────────────────────────────
 volumes:
@@ -184,14 +184,6 @@ volumes:
   milvus_data:
     driver: local
   postgres_data:
-    driver: local
-  backend_venv:
-    driver: local
-  frontend_node_modules:
-    driver: local
-  pnpm_store:
-    driver: local
-  frontend_next:
     driver: local
 
 # ── Networks ────────────────────────────────────────────────────────────

@@ -187,7 +187,7 @@ async def _chat_stream_generator(
     # ── 2. Build context via retrieval ───────────────────────────────────
     user_id_int = abs(hash(str(current_user["user_id"])))
     try:
-        result = await retrieve(query=resolved_query, user_id=user_id_int, top_k=5)
+        result = await retrieve(query=resolved_query, user_id_int=user_id_int, top_k=5)
     except Exception as e:
         yield _sse_event({"type": "error", "content": f"Retrieval failed: {str(e)[:200]}"})
         return

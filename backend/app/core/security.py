@@ -59,3 +59,40 @@ async def get_current_user(
         )
 
     return {"user_id": user_id, "payload": payload}
+
+
+async def require_admin(
+    current_user: dict = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """
+    Guard dependency that allows only admin users to proceed.
+
+    Admin status is resolved from the JWT in this order:
+      1. ``app_metadata.role == "admin"`` (Supabase convention)
+      2. top-level ``role == "admin"`` claim
+      3. ``settings.admin_user_ids`` allowlist (config override)
+
+    Raises 403 if the caller is not an admin.
+
+    Security note: every route using this dependency should pair it with
+    a non-RLS service session (``get_db_session_service``) for any shared
+    writes (e.g. system-corpus ingestion).
+    """
+    payload = current_user.get("payload", {})
+
+    app_metadata = payload.get("app_metadata") or {}
+    if isinstance(app_metadata, dict) and app_metadata.get("role") == "admin":
+        return current_user
+
+    if payload.get("role") == "admin":
+        return current_user
+
+    admin_ids = [uid.strip() for uid in (getattr(settings, "admin_user_ids", "") or "").split(",") if uid.strip()]
+    if current_user.get("user_id") in admin_ids:
+        return current_user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin privileges required.",
+    )

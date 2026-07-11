@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from app.services.embedding_service import encode_query
-from app.services.vector_store_service import hybrid_search
+from app.services.vector_store_service import get_search_partitions, hybrid_search
 
 logger = logging.getLogger(__name__)
 
@@ -307,15 +307,18 @@ def _rerank(query: str, candidates: list[dict]) -> list[dict]:
 
 async def retrieve(
     query: str,
-    user_id: int,
+    user_id_int: int | None = None,
     top_k: int = 5,
 ) -> RetrievalResult:
     """Full 7-stage retrieval pipeline.
 
     Args:
-        query:   User's natural-language legal question.
-        user_id: Milvus partition key (for RLS).
-        top_k:   Number of final context chunks to return (default 5).
+        query:       User's natural-language legal question.
+        user_id_int: Hashed user id, or ``None`` for an anonymous/system-only
+            search. The system corpus (``p_system``) is always searched; when
+            ``user_id_int`` is provided the caller's private partition is
+            merged in via a single Milvus call.
+        top_k:       Number of final context chunks to return (default 5).
 
     Returns:
         :class:`RetrievalResult` with ranked chunks, citations,
@@ -339,7 +342,7 @@ async def retrieve(
 
     try:
         candidates = hybrid_search(
-            user_id=user_id,
+            partition_names=get_search_partitions(user_id_int),
             dense_vec=dense_vec,
             sparse_vec=sparse_vec,
             query_text=query,

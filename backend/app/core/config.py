@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_jwt_secret: str = ""
 
+    # ── Admin access ──────────────────────────────────────────────────────
+    # Comma-separated list of Supabase user UUIDs that are granted admin
+    # privileges (used by require_admin when the JWT lacks an admin role claim).
+    admin_user_ids: str = ""
+
     # ── Milvus ────────────────────────────────────────────────────────────
     milvus_host: str = "localhost"
     milvus_port: str = "19530"
@@ -29,7 +34,7 @@ class Settings(BaseSettings):
     encryption_key: str = ""
 
     # ── Embedding ─────────────────────────────────────────────────────────
-    embedding_model_name: str = "BAAI/bge-m3"
+    embedding_model_name: str = "bge-m3"
     embedding_batch_size: int = 32
     embedding_dimension: int = 1024
 

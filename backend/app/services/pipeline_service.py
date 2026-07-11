@@ -9,9 +9,11 @@ from app.services.pdf_engine import ExtractionResult
 from app.services.chunking_service import chunk_document
 from app.services.embedding_service import encode_dense, encode_sparse, warmup
 from app.services.vector_store_service import (
+    SYSTEM_PARTITION,
     ensure_collection,
     ensure_partition,
     insert_chunks,
+    user_partition_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,16 +26,20 @@ def _uuid_to_int64(uuid_value: UUID) -> int:
 
 async def run_vector_pipeline(
     extraction: ExtractionResult,
-    user_id: int,
+    user_id_int: int | None,
     document_id: UUID,
+    is_system: bool = False,
 ) -> str:
     """
     Run the full vector pipeline: chunk -> embed -> upsert.
 
     Args:
         extraction: Result from pdf_engine.process_document().
-        user_id: The user's ID as a deterministic INT64 (for Milvus partition key).
+        user_id_int: Hashed user id, or ``None`` for a system-document ingestion.
         document_id: The document UUID.
+        is_system: When ``True`` the chunks are written to the shared
+            ``p_system`` partition (official corpus) instead of the user's
+            private partition. System writes must be admin-gated by the caller.
 
     Returns:
         Status string: ``"vectorized"`` on success.
@@ -47,9 +53,15 @@ async def run_vector_pipeline(
         logger.info("No chunks produced for document %s — nothing to vectorize", document_id)
         return "vectorized"
 
-    # Stage 2: Ensure Milvus collection and user partition exist
+    # Stage 2: Resolve target partition and ensure it exists
+    if is_system:
+        partition = SYSTEM_PARTITION
+    else:
+        if user_id_int is None:
+            raise ValueError("user_id_int is required for non-system document ingestion")
+        partition = user_partition_name(user_id_int)
     ensure_collection()
-    ensure_partition(user_id)
+    ensure_partition(partition)
 
     # Stage 3: Embed all chunks (batch dense + sparse)
     chunk_texts = [c.text for c in chunks]
@@ -64,7 +76,8 @@ async def run_vector_pipeline(
     milvus_chunks = []
     for i, (chunk, dense, sparse) in enumerate(zip(chunks, dense_vectors, sparse_vectors)):
         milvus_chunks.append({
-            "user_id": user_id,
+            "user_id": 0 if is_system else user_id_int,
+            "scope": "system" if is_system else "user",
             "document_id": doc_id_int,
             "chunk_index": chunk.chunk_index,
             "dense_vector": dense,
@@ -76,11 +89,12 @@ async def run_vector_pipeline(
         })
 
     # Stage 5: Insert into Milvus
-    chunk_ids = insert_chunks(user_id, milvus_chunks)
+    chunk_ids = insert_chunks(partition, milvus_chunks)
     logger.info(
-        "Vector pipeline complete: %d chunks -> %d Milvus entries for document %s",
+        "Vector pipeline complete: %d chunks -> %d Milvus entries (scope=%s) for document %s",
         len(chunks),
         len(chunk_ids),
+        partition,
         document_id,
     )
 

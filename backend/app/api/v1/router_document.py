@@ -28,8 +28,8 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.core.database import get_db_session_with_rls
-from app.core.security import get_current_user
+from app.core.database import get_db_session_service, get_db_session_with_rls
+from app.core.security import get_current_user, require_admin
 from app.schemas.document import DocumentResponse, DocumentListResponse, IngestionStatusResponse, IngestionStatusListResponse
 from app.models.document import Document
 from app.models.chunk import DocumentChunk
@@ -289,13 +289,246 @@ async def process_document_endpoint(
             user_id_int = abs(hash(str(current_user["user_id"])))
             vector_status = await run_vector_pipeline(
                 extraction=extraction,
-                user_id=user_id_int,
+                user_id_int=user_id_int,
                 document_id=document.id,
+                is_system=False,
             )
             document.status = vector_status
         except Exception as vec_err:
             logger.warning(
                 "Vector pipeline failed for document %s: %s", document.id, vec_err,
+            )
+            document.error_log = {
+                "error_type": "VectorizationFailed",
+                "message": str(vec_err),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+        await db.commit()
+    except Exception as e:
+        document.status = "failed"
+        document.failed_blocks = extraction.failed_blocks
+        document.error_log = {
+            "error_type": type(e).__name__,
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "traceback_summary": "",
+        }
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save extracted chunks.",
+        )
+
+    return {
+        "status": "processed",
+        "metadata": {
+            "page_count": extraction.metadata.page_count,
+            "language": extraction.metadata.language,
+            "chunk_count": len(extraction.chunks),
+            "failed_blocks": extraction.failed_blocks,
+        },
+    }
+
+
+@router.post(
+    "/admin/documents/",
+    response_model=DocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload System Document (Admin)",
+    description="Admin-only: ingest an official-corpus PDF into the shared "
+    "p_system Milvus partition. These documents are queryable by every user.",
+)
+async def upload_system_document(
+    file: UploadFile = File(..., description="Official PDF to add to the shared corpus (max 50MB)"),
+    language: str = Form("en", description="Document language code: en, fr, ar"),
+    db: AsyncSession = Depends(get_db_session_service),
+    admin: dict = Depends(require_admin),
+):
+    safe_name = file.filename if file.filename and file.filename.strip() else None
+    if safe_name is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing filename in upload.",
+        )
+
+    if not validate_pdf_magic_bytes(file):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type.",
+        )
+
+    original_pos = file.file.tell()
+    try:
+        file.file.seek(0, os.SEEK_END)
+        file_size = file.file.tell()
+        file.file.seek(original_pos)
+    except Exception:
+        file_size = 0
+
+    if file_size == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty file upload not allowed.",
+        )
+
+    max_size = 50 * 1024 * 1024
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds 50MB limit.",
+        )
+
+    valid_languages = {"en", "fr", "ar"}
+    if language not in valid_languages:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid language. Supported: {', '.join(sorted(valid_languages))}",
+        )
+
+    stem = Path(safe_name).stem
+    if len(stem) > MAX_FILENAME_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Filename stem too long.",
+        )
+
+    safe_filename = f"sys_{stem}_{uuid4()}{Path(safe_name).suffix}"
+    file_path = UPLOAD_DIR / safe_filename
+
+    try:
+        await write_file_chunked(file, file_path)
+    except Exception:
+        await _cleanup_file_async(file_path)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save file.",
+        )
+
+    document = Document(
+        filename=safe_filename,
+        language=language,
+        status="pending",
+        user_id=UUID(admin["user_id"]),
+        is_system=True,
+    )
+
+    try:
+        db.add(document)
+        await db.commit()
+        await db.refresh(document)
+        return document
+    except Exception:
+        await db.rollback()
+        await _cleanup_file_async(file_path)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process upload.",
+        )
+
+
+@router.post(
+    "/admin/documents/{document_id}/process",
+    summary="Process System Document (Admin)",
+    description="Admin-only: extract text and vectorize an official-corpus document "
+    "into the shared p_system Milvus partition.",
+)
+async def process_system_document_endpoint(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db_session_service),
+    admin: dict = Depends(require_admin),
+):
+    result = await db.execute(
+        select(Document)
+        .where(Document.id == document_id)
+        .where(Document.is_system.is_(True))
+        .with_for_update()
+    )
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="System document not found.",
+        )
+
+    if document.status not in ("pending", "failed"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Document status is '{document.status}', must be 'pending' or 'failed' to process.",
+        )
+
+    document.status = "processing"
+    await db.commit()
+
+    pdf_path = UPLOAD_DIR / document.filename
+    if not pdf_path.exists():
+        document.status = "failed"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document file not available for processing.",
+        )
+
+    try:
+        extraction = await process_document(pdf_path, document_id)
+    except Exception as e:
+        document.status = "failed"
+        tb = traceback.format_exc()
+        document.error_log = {
+            "error_type": type(e).__name__,
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "traceback_summary": tb[:2000] + ("...[truncated]" if len(tb) > 2000 else ""),
+        }
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PDF processing failed.",
+        )
+
+    if extraction.status == "failed":
+        document.status = "failed"
+        document.failed_blocks = extraction.failed_blocks
+        document.error_log = {
+            "error_type": "ExtractionFailed",
+            "message": extraction.error,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "traceback_summary": "",
+        }
+        await db.commit()
+        return {"status": "failed", "error": extraction.error}
+
+    try:
+        for chunk in extraction.chunks:
+            db_chunk = DocumentChunk(
+                document_id=document_id,
+                chunk_index=chunk.block_index,
+                page_number=chunk.page,
+                text=chunk.text,
+                bounding_box=chunk.bounding_box,
+                text_direction=chunk.text_direction,
+            )
+            db.add(db_chunk)
+
+        document.status = "processed"
+        document.error_log = None
+        document.page_count = extraction.metadata.page_count
+        document.failed_blocks = extraction.failed_blocks
+        document.detected_languages = extraction.metadata.detected_languages
+
+        try:
+            from app.services.pipeline_service import run_vector_pipeline
+            vector_status = await run_vector_pipeline(
+                extraction=extraction,
+                user_id_int=None,
+                document_id=document.id,
+                is_system=True,
+            )
+            document.status = vector_status
+        except Exception as vec_err:
+            logger.warning(
+                "System vector pipeline failed for document %s: %s", document.id, vec_err,
             )
             document.error_log = {
                 "error_type": "VectorizationFailed",

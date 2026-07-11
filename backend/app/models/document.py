@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, JSON
+from sqlalchemy import Boolean, Integer, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -12,6 +12,14 @@ class Document(BaseModel):
         String(10),
         nullable=False,
         comment="ISO language code: en, fr, ar",
+    )
+    is_system: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        index=True,
+        comment="True for official corpus documents stored in the shared p_system Milvus partition",
     )
     status: Mapped[str] = mapped_column(
         String(20),

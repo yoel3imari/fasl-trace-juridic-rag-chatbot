@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ── STAGE 1: crispembed native library builder ──────────────────────────────
 FROM python:3.12-slim-bookworm AS crispembed-builder
 
@@ -13,14 +14,22 @@ WORKDIR /opt
 RUN git clone --recursive https://github.com/CrispStrobe/CrispEmbed.git
 
 WORKDIR /opt/CrispEmbed
+# BldKit cache mount keeps compiled objects across builds (incremental). Its
+# contents are NOT in the image, so the libs are flattened into a committed
+# dir HERE (same RUN) for COPY --from. Flattening co-locates libggml*.so next
+# to libcrispembed.so so its $ORIGIN RPATH resolves. -j capped at 4 = low RAM.
 RUN --mount=type=cache,target=/opt/CrispEmbed/build \
     cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCRISPEMBED_BUILD_SHARED=ON \
-    && cmake --build build -j"$(nproc)" \
-    && find build -type f \( -name '*.o' -name '*.a' \) -delete \
+    && NPROC=$(nproc) && if [ "$NPROC" -gt 4 ]; then NPROC=4; fi \
+    && cmake --build build -j"$NPROC" \
+    && find build -type f \( -name '*.o' -o -name '*.a' \) -delete \
     && find build -type d -name CMakeFiles -exec rm -rf {} + 2>/dev/null || true \
-    && strip --strip-unneeded build/*.so* 2>/dev/null || true
+    && strip --strip-unneeded build/*.so* 2>/dev/null || true \
+    && mkdir -p /opt/CrispEmbed/install \
+    && find /opt/CrispEmbed/build -name 'libcrispembed.so*' -exec cp -aP {} /opt/CrispEmbed/install/ \; \
+    && find /opt/CrispEmbed/build -name 'libggml*.so*' -exec cp -aP {} /opt/CrispEmbed/install/ \;
 
 # ── STAGE 2: Python dependency builder ─────────────────────────────────────
 FROM python:3.12-slim-bookworm AS venv-builder
@@ -67,7 +76,7 @@ COPY --from=venv-builder /app/.venv /app/.venv
 
 # Copy crispembed Python wrapper + built libraries from stage 1
 COPY --from=crispembed-builder /opt/CrispEmbed/python /opt/CrispEmbed/python
-COPY --from=crispembed-builder /opt/CrispEmbed/build /opt/CrispEmbed/build
+COPY --from=crispembed-builder /opt/CrispEmbed/install /opt/CrispEmbed/build
 
 WORKDIR /app
 

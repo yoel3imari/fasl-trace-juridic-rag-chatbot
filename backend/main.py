@@ -14,22 +14,23 @@ from app.api.v1.router_collection import router as collection_router
 from app.api.v1.router_llm_provider import router as llm_provider_router
 from app.api.v1.router_model_assignment import router as model_assignment_router
 from app.api.v1.router_chat import router as chat_router
-from app.core.config import get_settings, Settings
+from app.core.config import get_settings
 from app.core.database import startup_db, shutdown_db
+from app.services.pipeline_service import warmup_pipeline
 from app.utils import simple_generate_unique_route_id
 
 
 async def lifespan(app: FastAPI):
     """
     Application lifespan context manager.
-    
+
     Handles startup and shutdown events including:
     - Upload directory creation
     - Database connection pool setup/teardown
     """
     # Store settings for access in other modules
     app.state.settings = get_settings()
-    
+
     # Create upload directory on startup (not at import time)
     # This avoids crashes if the process lacks disk permissions
     upload_dir = Path(os.getenv("UPLOAD_DIR", "uploads"))
@@ -39,12 +40,21 @@ async def lifespan(app: FastAPI):
             print(f"[APP] Upload directory ready: {upload_dir.absolute()}")
     except Exception as e:
         print(f"[ERROR] Failed to create upload directory: {e}")
-    
+
     # Startup database
     await startup_db(app)
-    
+
+    # Apply pending DB migrations before serving any request (fail-fast on error)
+    from app.core.database import run_migrations_upgrade
+
+    await run_migrations_upgrade()
+
+    # Pre-download the embedding model before accepting requests
+    # (avoids cold-start download on the first embed call)
+    await warmup_pipeline()
+
     yield
-    
+
     # Shutdown database
     await shutdown_db(app)
 

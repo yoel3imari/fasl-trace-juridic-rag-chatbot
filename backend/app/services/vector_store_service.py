@@ -34,6 +34,7 @@ _OUTPUT_FIELDS = [
     "page_number",
     "section_title",
     "metadata",
+    "scope",
 ]
 
 
@@ -47,6 +48,12 @@ def _build_schema() -> CollectionSchema:
             auto_id=True,
         ),
         FieldSchema(name="user_id", dtype=DataType.INT64),
+        FieldSchema(
+            name="scope",
+            dtype=DataType.VARCHAR,
+            max_length=16,
+            description="Access scope: 'system' (shared official corpus) or 'user' (private upload)",
+        ),
         FieldSchema(name="document_id", dtype=DataType.INT64),
         FieldSchema(name="chunk_index", dtype=DataType.INT32),
         FieldSchema(name="dense_vector", dtype=DataType.FLOAT_VECTOR, dim=1024),
@@ -156,16 +163,19 @@ def collection_exists() -> bool:
 
 # ── Partition management ──────────────────────────────────────────────────
 
+# Shared partition holding the official legal corpus (statutes, case law,
+# regulations). Every authenticated user searches this partition in addition
+# to their own private partition — this is the core of the dual-access model.
+SYSTEM_PARTITION = "p_system"
 
-def ensure_partition(user_id: int) -> str:
+
+def ensure_partition(partition_name: str) -> str:
     """
-    Create partition ``p_{user_id}`` if it doesn't exist.
+    Create ``partition_name`` if it doesn't exist.
     Returns the partition name.
     """
     collection = _get_collection()
-    partition_name = f"p_{user_id}"
-
-    if partition_name in collection.partitions:
+    if collection.has_partition(partition_name):
         return partition_name
 
     collection.create_partition(partition_name)
@@ -173,15 +183,29 @@ def ensure_partition(user_id: int) -> str:
     return partition_name
 
 
-def delete_partition(user_id: int) -> None:
+def ensure_system_partition() -> str:
+    """Ensure the shared system partition exists. Returns its name."""
+    return ensure_partition(SYSTEM_PARTITION)
+
+
+def user_partition_name(user_id_int: int) -> str:
+    """Partition name for a user's private documents."""
+    return f"p_{user_id_int}"
+
+
+def ensure_user_partition(user_id_int: int) -> str:
+    """Ensure a user's private partition exists. Returns its name."""
+    return ensure_partition(user_partition_name(user_id_int))
+
+
+def delete_partition(partition_name: str) -> None:
     """
-    Drop the entire partition for a user.
+    Drop the partition with the given name.
     Releases the collection first (required before dropping a partition).
     """
     collection = _get_collection()
-    partition_name = f"p_{user_id}"
 
-    if partition_name not in collection.partitions:
+    if not collection.has_partition(partition_name):
         logger.warning("Partition '%s' does not exist — nothing to drop", partition_name)
         return
 
@@ -191,22 +215,49 @@ def delete_partition(user_id: int) -> None:
     logger.info("Dropped partition '%s'", partition_name)
 
 
+def delete_user_partition(user_id_int: int) -> None:
+    """Drop a user's private partition."""
+    delete_partition(user_partition_name(user_id_int))
+
+
+def get_search_partitions(user_id_int: int | None) -> list[str]:
+    """
+    Resolve the dual-access search scope.
+
+    The system corpus is *always* searched. When a user context is present,
+    their private partition is appended so both scopes merge in a single
+    Milvus call.
+
+    Args:
+        user_id_int: Hashed user id, or ``None`` for an anonymous/system-only
+            search.
+
+    Returns:
+        ``["p_system"]`` or ``["p_system", "p_<user_id>"]``.
+    """
+    partitions = [SYSTEM_PARTITION]
+    if user_id_int is not None:
+        partitions.append(user_partition_name(user_id_int))
+    return partitions
+
+
 # ── CRUD operations ───────────────────────────────────────────────────────
 
 
 @_retry()
-def insert_chunks(user_id: int, chunks: list[dict]) -> list[int]:
+def insert_chunks(partition_name: str, chunks: list[dict]) -> list[int]:
     """
-    Insert a batch of chunks into the user's partition.
-    Each chunk dict must contain: user_id, document_id, chunk_index,
+    Insert a batch of chunks into the named partition.
+    Each chunk dict must contain: user_id, scope, document_id, chunk_index,
     dense_vector, sparse_vector, text, page_number, section_title, metadata.
     Returns a list of auto-generated chunk IDs.
     """
     collection = _get_collection()
-    partition_name = ensure_partition(user_id)
+    ensure_partition(partition_name)
 
     entities = [
         [c["user_id"] for c in chunks],
+        [c["scope"] for c in chunks],
         [c["document_id"] for c in chunks],
         [c["chunk_index"] for c in chunks],
         [c["dense_vector"] for c in chunks],
@@ -236,7 +287,7 @@ def delete_document_chunks(user_id: int, document_id: int) -> int:
     Returns the number of deleted entities.
     """
     collection = _get_collection()
-    partition_name = f"p_{user_id}"
+    partition_name = user_partition_name(user_id)
     expr = f"document_id == {document_id}"
 
     mr = collection.delete(expr, partition_name=partition_name)
@@ -269,7 +320,7 @@ def _hit_to_dict(hit, output_fields: list[str]) -> dict:
 
 @_retry()
 def hybrid_search(
-    user_id: int,
+    partition_names: list[str],
     dense_vec: list[float],
     sparse_vec: dict[int, float],
     query_text: str = "",
@@ -277,12 +328,19 @@ def hybrid_search(
     filters: str = "",
 ) -> list[dict]:
     """
-    Hybrid search: dense ANN + sparse ANN merged via RRF.
-    Always scoped to the user's partition for RLS.
+    Hybrid search: dense ANN + sparse ANN merged via RRF across the provided
+    partitions (dual-access: ``p_system`` + the caller's private partition).
     Returns a list of dicts sorted by combined score.
     """
     collection = _get_collection()
-    partition_name = f"p_{user_id}"
+
+    # Only search partitions that exist — a user with no uploads has no
+    # private partition yet, and naming a missing partition raises in Milvus.
+    existing = {p.name for p in collection.partitions}
+    valid_partitions = [pn for pn in partition_names if pn in existing]
+    if not valid_partitions:
+        logger.debug("hybrid_search: no valid partitions among %s", partition_names)
+        return []
 
     if not collection.is_loaded:
         collection.load()
@@ -317,14 +375,14 @@ def hybrid_search(
         rerank=RRFRanker(k=60),
         limit=top_k,
         output_fields=_OUTPUT_FIELDS,
-        partition_names=[partition_name],
+        partition_names=valid_partitions,
     )
 
     hits = results[0] if results else []
     output = [_hit_to_dict(hit, _OUTPUT_FIELDS) for hit in hits]
     logger.debug(
-        "hybrid_search(user_id=%s, top_k=%s) returned %d results",
-        user_id,
+        "hybrid_search(partitions=%s, top_k=%s) returned %d results",
+        valid_partitions,
         top_k,
         len(output),
     )
@@ -333,17 +391,20 @@ def hybrid_search(
 
 @_retry()
 def search_dense(
-    user_id: int,
+    partition_names: list[str],
     dense_vec: list[float],
     top_k: int = 20,
     filters: str = "",
 ) -> list[dict]:
     """
-    Dense-only ANN search scoped to the user's partition.
+    Dense-only ANN search across the provided partitions.
     Fallback when sparse vectors aren't available.
     """
     collection = _get_collection()
-    partition_name = f"p_{user_id}"
+    existing = {p.name for p in collection.partitions}
+    valid_partitions = [pn for pn in partition_names if pn in existing]
+    if not valid_partitions:
+        return []
 
     if not collection.is_loaded:
         collection.load()
@@ -360,14 +421,14 @@ def search_dense(
         limit=top_k,
         expr=filters or None,
         output_fields=_OUTPUT_FIELDS,
-        partition_names=[partition_name],
+        partition_names=valid_partitions,
     )
 
     hits = results[0] if results else []
     output = [_hit_to_dict(hit, _OUTPUT_FIELDS) for hit in hits]
     logger.debug(
-        "search_dense(user_id=%s, top_k=%s) returned %d results",
-        user_id,
+        "search_dense(partitions=%s, top_k=%s) returned %d results",
+        valid_partitions,
         top_k,
         len(output),
     )
@@ -376,17 +437,20 @@ def search_dense(
 
 @_retry()
 def search_sparse(
-    user_id: int,
+    partition_names: list[str],
     sparse_vec: dict[int, float],
     top_k: int = 20,
     filters: str = "",
 ) -> list[dict]:
     """
-    Sparse-only ANN search scoped to the user's partition.
+    Sparse-only ANN search across the provided partitions.
     Fallback when dense vectors aren't available.
     """
     collection = _get_collection()
-    partition_name = f"p_{user_id}"
+    existing = {p.name for p in collection.partitions}
+    valid_partitions = [pn for pn in partition_names if pn in existing]
+    if not valid_partitions:
+        return []
 
     if not collection.is_loaded:
         collection.load()
@@ -402,14 +466,14 @@ def search_sparse(
         limit=top_k,
         expr=filters or None,
         output_fields=_OUTPUT_FIELDS,
-        partition_names=[partition_name],
+        partition_names=valid_partitions,
     )
 
     hits = results[0] if results else []
     output = [_hit_to_dict(hit, _OUTPUT_FIELDS) for hit in hits]
     logger.debug(
-        "search_sparse(user_id=%s, top_k=%s) returned %d results",
-        user_id,
+        "search_sparse(partitions=%s, top_k=%s) returned %d results",
+        valid_partitions,
         top_k,
         len(output),
     )

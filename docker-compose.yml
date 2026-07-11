@@ -116,6 +116,8 @@ services:
       - backend_venv:/app/.venv
       # Shared directory for OpenAPI schema exchange
       - ./local-shared-data:/app/shared-data
+      # Persist downloaded GGUF embedding model (CrispEmbed) across restarts
+      - hf_cache:/app/cache/huggingface
     networks:
       - legal-rag-net
     depends_on:
@@ -192,6 +194,8 @@ volumes:
   pnpm_store:
     driver: local
   frontend_next:
+    driver: local
+  hf_cache:
     driver: local
 
 # ── Networks ────────────────────────────────────────────────────────────

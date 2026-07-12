@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/resizable";
 import { useChatStore } from "@/store/useChatStore";
 import { ChatPane } from "@/components/features/chat/ChatPane";
+import { WorkspaceToolbar } from "@/components/features/workspace/WorkspaceToolbar";
 
 const DocumentPane = dynamic(
   () =>
@@ -46,16 +47,17 @@ export function WorkspaceLayout() {
   );
 
   return (
-    <div className="h-screen w-screen overflow-hidden">
+    <div className="h-screen w-screen overflow-hidden flex flex-col">
+      <WorkspaceToolbar />
       <ResizablePanelGroup
         orientation="horizontal"
         onLayoutChange={handleLayoutChange}
-        className="h-full w-full"
+        className="flex-1 h-full w-full"
       >
         <ResizablePanel
           id="chat"
           defaultSize={chatSize}
-          minSize={20}
+          minSize="480px"
           className="bg-slate-900"
         >
           <ChatPane />
@@ -69,7 +71,7 @@ export function WorkspaceLayout() {
         <ResizablePanel
           id="document"
           defaultSize={docSize}
-          minSize={30}
+          minSize="480px"
           className="bg-zinc-100"
         >
           <DocumentPane />

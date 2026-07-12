@@ -15,6 +15,7 @@ export function ChatInput() {
   const addUserMessage = useChatStore((s) => s.addUserMessage);
   const startAssistantMessage = useChatStore((s) => s.startAssistantMessage);
   const streamingStatus = useChatStore((s) => s.workspace.streamingStatus);
+  const selectedCollectionId = useChatStore((s) => s.workspace.selectedCollectionId);
   const { startStream } = useChatStream();
 
   const isDisabled = streamingStatus !== "idle";
@@ -25,7 +26,7 @@ export function ChatInput() {
     setValue("");
     addUserMessage(trimmed);
     startAssistantMessage();
-    startStream(trimmed, undefined);
+    startStream(trimmed, selectedCollectionId ?? undefined);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

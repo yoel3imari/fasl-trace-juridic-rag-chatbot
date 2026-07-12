@@ -50,6 +50,7 @@ export interface WorkspaceState {
   sessionId: string;
   selectedDocumentId: string | null;
   pdfUrl: string | null;
+  selectedCollectionId: string | null;
   panelRatio: [number, number];
   chatPaneVisible: boolean;
   messages: ChatMessage[];
@@ -76,6 +77,7 @@ interface ChatState {
 
   // Workspace actions
   setSelectedDocument: (documentId: string | null, pdfUrl: string | null, language?: DocumentLanguage) => void;
+  setSelectedCollection: (collectionId: string | null) => void;
   setPdfUrl: (url: string | null) => void;
   setPanelRatio: (ratio: [number, number]) => void;
   toggleChatPane: () => void;
@@ -103,6 +105,7 @@ const defaultWorkspace = (): WorkspaceState => ({
   sessionId: generateId(),
   selectedDocumentId: null,
   pdfUrl: null,
+  selectedCollectionId: null,
   panelRatio: [40, 60],
   chatPaneVisible: true,
   messages: [],
@@ -162,13 +165,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
 
+  setSelectedCollection: (collectionId) =>
+    set((state) => ({
+      workspace: {
+        ...state.workspace,
+        selectedCollectionId: collectionId,
+      },
+    })),
+
   setPdfUrl: (url) =>
     set((state) => ({
       activeCitation: null,
       workspace: {
         ...state.workspace,
         pdfUrl: url,
-  
       },
     })),
 

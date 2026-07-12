@@ -36,11 +36,9 @@ function WelcomePlaceholder() {
 }
 
 export function ChatPane() {
-  const { sessionId, messages, selectedDocumentId } = useChatStore((s) => ({
-    sessionId: s.workspace.sessionId,
-    messages: s.workspace.messages,
-    selectedDocumentId: s.workspace.selectedDocumentId,
-  }));
+  const sessionId = useChatStore((s) => s.workspace.sessionId);
+  const messages = useChatStore((s) => s.workspace.messages);
+  const selectedDocumentId = useChatStore((s) => s.workspace.selectedDocumentId);
   const hasMessages = messages.length > 0;
 
   return (

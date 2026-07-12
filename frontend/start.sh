@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 echo "💻 Starting frontend..."
-pnpm run dev &
+bun run dev &
 
-node watcher.js
+bun watcher.js
 
 wait

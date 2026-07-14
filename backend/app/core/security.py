@@ -1,18 +1,39 @@
 """
 JWT verification dependency — local verification using PyJWT.
 
-Uses the Supabase JWT secret for sub-millisecond local token verification
-instead of making a network round-trip to Supabase's auth endpoint.
-This satisfies NFR-P1 (<200ms TTFB).
+Uses Supabase's JWKS endpoint to fetch the public key and verify
+the token locally. This avoids a network round-trip to the Auth
+server on every request while supporting ES256-signed tokens
+(modern Supabase default) and falling back to HS256 for older
+projects that use the JWT secret.
 """
+
+from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
+from jwt import PyJWKClient, PyJWKClientError
 
 from app.core.config import get_settings, Settings
 
 security_scheme = HTTPBearer()
+
+# Cached JWKS client — constructed lazily on first use
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_jwks_client(supabase_url: str) -> PyJWKClient:
+    """Build and cache a PyJWKClient from the Supabase project URL."""
+    global _jwks_client
+    if _jwks_client is not None:
+        return _jwks_client
+
+    # supabase_url looks like "https://<project>.supabase.co/rest/v1/"
+    parsed = urlparse(supabase_url)
+    jwks_url = f"{parsed.scheme}://{parsed.netloc}/auth/v1/.well-known/jwks.json"
+    _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+    return _jwks_client
 
 
 async def get_current_user(
@@ -20,17 +41,44 @@ async def get_current_user(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """
-    Decode and verify a Supabase JWT. Returns the decoded payload
-    containing the user's `sub` (user_id) claim.
+    Decode and verify a Supabase JWT using the project's JWKS endpoint.
+
+    Returns the decoded payload containing the user's ``sub`` (user_id) claim.
 
     Raises 401 if the token is invalid, expired, or missing.
     """
     token = credentials.credentials
 
+    # Try ES256 via JWKS first (modern Supabase default)
+    try:
+        jwks_client = _get_jwks_client(settings.supabase_url)
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=[signing_key.algorithm_name],
+            audience="authenticated",
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token missing 'sub' claim",
+            )
+        return {"user_id": user_id, "payload": payload}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired",
+        )
+    except (jwt.InvalidTokenError, PyJWKClientError):
+        pass  # Fall through to HS256 attempt below
+
+    # Fallback: HS256 with JWT secret (older Supabase projects)
     if not settings.supabase_jwt_secret:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="SUPABASE_JWT_SECRET is not configured",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token: not verifiable with JWKS or JWT secret",
         )
 
     try:

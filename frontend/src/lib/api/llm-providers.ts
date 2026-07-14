@@ -14,7 +14,7 @@ export async function listLlmProviders({
   limit?: number;
 }): Promise<LlmProviderListResponse> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
+  if (!token) return { items: [], total: 0, skip: skip ?? 0, limit: limit ?? 10 };
   const { data, error } = await sdk.listLlmProviders({
     query: { skip, limit },
     headers: { Authorization: `Bearer ${token}` },
@@ -33,10 +33,9 @@ export async function createLlmProvider({
   api_version?: string | null;
 }): Promise<LlmProviderResponse> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
   const { data, error } = await sdk.createLlmProvider({
     body: { provider_type, base_url, api_version },
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;
   return data;
@@ -44,10 +43,9 @@ export async function createLlmProvider({
 
 export async function deleteLlmProvider(id: string): Promise<void> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
   const { data, error } = await sdk.deleteLlmProvider({
     path: { provider_id: id },
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;
   return data;
@@ -55,10 +53,9 @@ export async function deleteLlmProvider(id: string): Promise<void> {
 
 export async function getLlmProvider(id: string): Promise<LlmProviderResponse> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
   const { data, error } = await sdk.getLlmProvider({
     path: { provider_id: id },
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;
   return data;
@@ -73,11 +70,10 @@ export async function updateLlmProvider(
   },
 ): Promise<LlmProviderResponse> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
   const { data: responseData, error } = await sdk.updateLlmProvider({
     path: { provider_id: id },
     body: data,
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;
   return responseData;
@@ -88,11 +84,10 @@ export async function setProviderApiKey(
   { api_key }: { api_key: string },
 ): Promise<ApiKeyResponse> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
   const { data, error } = await sdk.setProviderApiKey({
     path: { provider_id: id },
     body: { api_key },
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;
   return data;
@@ -102,10 +97,9 @@ export async function getProviderApiKeyStatus(
   id: string,
 ): Promise<ApiKeyResponse> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
   const { data, error } = await sdk.getProviderApiKeyStatus({
     path: { provider_id: id },
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;
   return data;
@@ -115,10 +109,9 @@ export async function deleteProviderApiKey(
   id: string,
 ): Promise<ApiKeyResponse> {
   const token = await getAuthToken();
-  if (!token) throw new Error('Not authenticated');
   const { data, error } = await sdk.deleteProviderApiKey({
     path: { provider_id: id },
-    headers: { Authorization: `Bearer ${token}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;
   return data;

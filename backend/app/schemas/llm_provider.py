@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, HttpUrl, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from typing import List, Literal, Optional
 from datetime import datetime
 from uuid import UUID
@@ -8,7 +8,7 @@ class LLMProviderBase(BaseModel):
     provider_type: Literal["openai", "anthropic", "ollama"] = Field(
         ..., description="openai | anthropic | ollama"
     )
-    base_url: Optional[HttpUrl] = Field(None, description="None for Ollama default")
+    base_url: Optional[str] = Field(None, description="None for Ollama default")
     api_version: Optional[str] = Field(None, description="e.g. 'v1' for OpenAI")
 
 
@@ -34,8 +34,7 @@ class LLMProviderResponse(LLMProviderBase):
     created_at: datetime
     updated_at: datetime
 
-    class ConfigDict:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class LLMProviderListResponse(BaseModel):

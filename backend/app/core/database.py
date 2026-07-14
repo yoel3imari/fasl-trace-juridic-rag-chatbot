@@ -116,18 +116,28 @@ async def _set_rls_context(session: AsyncSession, current_user: dict):
     For Supabase RLS to work, we need to inject the authenticated user's ID
     into the PostgreSQL session using SET LOCAL. This allows auth.uid() to
     return the correct value for RLS policy evaluation.
+
+    In local dev without Supabase RLS roles, the SET LOCAL calls are
+    gracefully ignored to avoid crashing on non-Supabase databases.
     """
     user_id = current_user.get("user_id")
-    if user_id:
-        # Set the jwt.claims to enable RLS auth.uid() to work
-        await session.execute(
-            text(f"SET LOCAL jwt.claims = '{json.dumps({'sub': user_id})}'")
-        )
-        # Also set the role to authenticated for Supabase RLS
-        await session.execute(text("SET LOCAL role = authenticated"))
+    if not user_id:
+        return
+
+    # Use a savepoint so SET LOCAL failures don't abort the transaction
+    for stmt in [
+        f"SET LOCAL jwt.claims = '{json.dumps({'sub': user_id})}'",
+        "SET LOCAL role = authenticated",
+    ]:
+        await session.execute(text("SAVEPOINT rls_try"))
+        try:
+            await session.execute(text(stmt))
+            await session.execute(text("RELEASE SAVEPOINT rls_try"))
+        except Exception:
+            # Local dev — RLS roles probably don't exist
+            await session.execute(text("ROLLBACK TO SAVEPOINT rls_try"))
 
 
-@asynccontextmanager
 async def get_db_session_with_rls(
     current_user: dict = Depends(get_current_user),
 ) -> AsyncGenerator[AsyncSession, None]:

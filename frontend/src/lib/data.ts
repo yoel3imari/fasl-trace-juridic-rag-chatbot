@@ -12,6 +12,7 @@
  * swapping takes effect instantly — zero component changes needed.
  */
 
+import "./clientConfig";
 import * as apiModule from "./api";
 
 export const api = apiModule;

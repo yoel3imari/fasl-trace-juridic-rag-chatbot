@@ -485,6 +485,10 @@ export type ModelAssignmentUpdate = {
      * Is Active
      */
     is_active?: boolean | null;
+    /**
+     * Provider Id
+     */
+    provider_id?: string | null;
 };
 
 /**
@@ -1294,6 +1298,26 @@ export type UpdateModelAssignmentResponses = {
 };
 
 export type UpdateModelAssignmentResponse = UpdateModelAssignmentResponses[keyof UpdateModelAssignmentResponses];
+
+export type PingModelAssignmentData = {
+    path: {
+        assignment_id: string;
+    };
+    query?: never;
+    url: '/api/v1/model-assignments/{assignment_id}/ping';
+};
+
+export type PingModelAssignmentErrors = {
+    422: HttpValidationError;
+};
+
+export type PingModelAssignmentError = PingModelAssignmentErrors[keyof PingModelAssignmentErrors];
+
+export type PingModelAssignmentResponses = {
+    200: ModelAssignmentResponse;
+};
+
+export type PingModelAssignmentResponse = PingModelAssignmentResponses[keyof PingModelAssignmentResponses];
 
 export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});

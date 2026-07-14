@@ -2,8 +2,15 @@
 legal-rag backend — FastAPI entry point.
 """
 
+import logging
 import os
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s [%(name)s] %(message)s",
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # quiet the HTTP client noise
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

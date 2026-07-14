@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Plus, Trash2, X, Loader2, Wifi, WifiOff } from "lucide-react"
+import { Pencil, Plus, Power, PowerOff, Trash2, Wifi, WifiOff, X, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DataTable, type Column } from "@/components/ui/data-table/DataTable"
@@ -475,6 +475,204 @@ function DeleteAssignmentDialog({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Edit Assignment Dialog                                             */
+/* ------------------------------------------------------------------ */
+
+interface EditAssignmentDialogProps {
+  assignment: ModelAssignmentResponse | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onUpdated: () => void
+  allProviders: LlmProviderResponse[]
+}
+
+function EditAssignmentDialog({
+  assignment,
+  open,
+  onOpenChange,
+  onUpdated,
+  allProviders,
+}: EditAssignmentDialogProps) {
+  const [providerId, setProviderId] = useState("")
+  const [modelName, setModelName] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || !assignment) return
+    setProviderId(assignment.provider_id)
+    setModelName(assignment.model_name)
+    setError(null)
+  }, [open, assignment])
+
+  const activeProviders = useMemo(
+    () => allProviders.filter((p) => p.is_active),
+    [allProviders],
+  )
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!assignment || !providerId || !modelName.trim()) return
+
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      await api.updateModelAssignment(assignment.id, {
+        provider_id: providerId,
+        model_name: modelName.trim(),
+      })
+      onUpdated()
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update assignment",
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleClose = () => {
+    if (submitting) return
+    setError(null)
+    onOpenChange(false)
+  }
+
+  if (!open || !assignment) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={handleClose}
+      />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-assignment-dialog-title"
+        className={cn(
+          "relative z-10 w-full max-w-md rounded-xl border border-border",
+          "bg-background p-6 shadow-2xl",
+          "animate-in fade-in zoom-in-95 duration-200",
+        )}
+      >
+        <div className="mb-5 flex items-center justify-between">
+          <h2
+            id="edit-assignment-dialog-title"
+            className="text-base font-semibold text-foreground"
+          >
+            Edit Assignment
+          </h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={submitting}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="edit-assignment-provider"
+              className="text-sm font-medium text-foreground"
+            >
+              Provider
+            </label>
+            <select
+              id="edit-assignment-provider"
+              value={providerId}
+              onChange={(e) => setProviderId(e.target.value)}
+              required
+              disabled={submitting || activeProviders.length === 0}
+              autoFocus
+              className="h-9 rounded-md border border-input bg-muted px-3 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
+            >
+              <option value="">
+                {activeProviders.length === 0
+                  ? "No active providers"
+                  : "Select provider..."}
+              </option>
+              {activeProviders.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {PROVIDER_LABELS[p.provider_type] ?? p.provider_type}
+                  {p.base_url ? ` (${p.base_url})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="edit-assignment-model"
+              className="text-sm font-medium text-foreground"
+            >
+              Model Name
+            </label>
+            <input
+              id="edit-assignment-model"
+              type="text"
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              placeholder="e.g., gpt-4o, claude-3-5-sonnet, llama3"
+              required
+              disabled={submitting}
+              className="h-9 rounded-md border border-input bg-muted px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground">
+              System Function
+            </label>
+            <div className="flex h-9 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+              {FUNCTION_LABELS[assignment.system_function] ??
+                assignment.system_function}
+            </div>
+          </div>
+
+          {error && (
+            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={submitting}
+              onClick={handleClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={
+                submitting || !providerId || !modelName.trim()
+              }
+            >
+              {submitting && (
+                <Loader2 className="size-3.5 animate-spin" />
+              )}
+              {submitting ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /*  AssignmentManager                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -491,9 +689,16 @@ export function AssignmentManager() {
     Record<string, string>
   >({})
 
+  const [allProviders, setAllProviders] = useState<LlmProviderResponse[]>([])
+
   const [addOpen, setAddOpen] = useState(false)
+  const [editAssignment, setEditAssignment] =
+    useState<ModelAssignmentResponse | null>(null)
   const [deleteAssignment, setDeleteAssignment] =
     useState<ModelAssignmentResponse | null>(null)
+  const [pingLoading, setPingLoading] = useState<Record<string, boolean>>(
+    {},
+  )
   const [sortKey, setSortKey] = useState<string | undefined>("updated_at")
   const [sortDir, setSortDir] = useState<"asc" | "desc" | undefined>("desc")
 
@@ -507,6 +712,8 @@ export function AssignmentManager() {
       ])
       setAssignments(assignResult.items)
       setTotal(assignResult.total)
+
+      setAllProviders(providerResult.items)
 
       const map: Record<string, string> = {}
       for (const p of providerResult.items) {
@@ -593,20 +800,87 @@ export function AssignmentManager() {
       {
         key: "actions",
         header: "",
-        width: "60px",
+        width: "140px",
         render: (item) => (
-          <button
-            type="button"
-            onClick={() => setDeleteAssignment(item)}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-            aria-label={`Delete ${item.model_name}`}
-          >
-            <Trash2 className="size-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setEditAssignment(item)}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={`Edit ${item.model_name}`}
+            >
+              <Pencil className="size-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
+                setPingLoading((prev) => ({
+                  ...prev,
+                  [item.id]: true,
+                }))
+                try {
+                  await api.pingModelAssignment(item.id)
+                } catch {
+                  // error ignored — fetchData refreshes the row
+                } finally {
+                  setPingLoading((prev) => ({
+                    ...prev,
+                    [item.id]: false,
+                  }))
+                  fetchData()
+                }
+              }}
+              disabled={pingLoading[item.id]}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+              aria-label={`Ping ${item.model_name}`}
+            >
+              {pingLoading[item.id] ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Wifi className="size-3.5" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await api.updateModelAssignment(item.id, {
+                    is_active: !item.is_active,
+                  })
+                  fetchData()
+                } catch {
+                  // error ignored — fetchData refreshes the row
+                }
+              }}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={
+                item.is_active
+                  ? `Deactivate ${item.model_name}`
+                  : `Activate ${item.model_name}`
+              }
+            >
+              {item.is_active ? (
+                <Power className="size-3.5" />
+              ) : (
+                <PowerOff className="size-3.5" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDeleteAssignment(item)}
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Delete ${item.model_name}`}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
         ),
       },
     ],
-    [providerMap],
+    [providerMap, pingLoading, fetchData],
   )
 
   return (
@@ -655,6 +929,19 @@ export function AssignmentManager() {
           setAddOpen(false)
           fetchData()
         }}
+      />
+
+      <EditAssignmentDialog
+        assignment={editAssignment}
+        open={editAssignment !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditAssignment(null)
+        }}
+        onUpdated={() => {
+          setEditAssignment(null)
+          fetchData()
+        }}
+        allProviders={allProviders}
       />
 
       <DeleteAssignmentDialog

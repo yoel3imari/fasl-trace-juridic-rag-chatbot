@@ -19,6 +19,7 @@ class ModelAssignmentCreate(ModelAssignmentBase):
 class ModelAssignmentUpdate(BaseModel):
     model_name: Optional[str] = None
     is_active: Optional[bool] = None
+    provider_id: Optional[UUID] = Field(None, description="FK to llm_providers.id")
 
 
 class ModelAssignmentResponse(ModelAssignmentBase):

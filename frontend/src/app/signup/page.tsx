@@ -6,47 +6,74 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 
-export default function LoginPage() {
+export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
 
-  const handleSignIn = useCallback(async () => {
+  const handleSignUp = useCallback(async () => {
     const supabase = createClient();
     setLoading(true);
     setError(null);
+    setConfirmed(false);
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
     });
 
-    if (signInError) {
-      setError(signInError.message);
+    if (signUpError) {
+      setError(signUpError.message);
       setLoading(false);
       return;
     }
 
-    router.push("/dashboard");
+    if (data.session) {
+      router.push("/dashboard");
+    } else {
+      setConfirmed(true);
+      setLoading(false);
+    }
   }, [email, password, router]);
+
+  if (confirmed) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="w-full max-w-sm mx-auto px-4">
+          <div className="rounded-xl border border-border bg-sidebar p-8 shadow-lg text-center">
+            <h1 className="text-xl font-semibold text-foreground">Check your email</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              We sent a confirmation link to <strong className="text-foreground">{email}</strong>.
+            </p>
+            <p className="mt-4 text-xs text-muted-foreground">
+              <Link href="/login" className="text-cyan-500 hover:underline">
+                Back to sign in
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="w-full max-w-sm mx-auto px-4">
         <div className="rounded-xl border border-border bg-sidebar p-8 shadow-lg">
           <div className="mb-8 text-center">
-            <h1 className="text-xl font-semibold text-foreground">Fasl Trace</h1>
+            <h1 className="text-xl font-semibold text-foreground">Create account</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Sign in to your account
+              Get started with Fasl Trace
             </p>
           </div>
 
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              handleSignIn();
+              handleSignUp();
             }}
             className="flex flex-col gap-4"
           >
@@ -83,7 +110,8 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                autoComplete="current-password"
+                minLength={6}
+                autoComplete="new-password"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-cyan-500/40"
               />
             </div>
@@ -97,14 +125,14 @@ export default function LoginPage() {
               disabled={loading}
               className="mt-2 w-full"
             >
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? "Creating account..." : "Create account"}
             </Button>
           </form>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            Don't have an account?{" "}
-            <Link href="/signup" className="text-cyan-500 hover:underline">
-              Create one
+            Already have an account?{" "}
+            <Link href="/login" className="text-cyan-500 hover:underline">
+              Sign in
             </Link>
           </p>
         </div>

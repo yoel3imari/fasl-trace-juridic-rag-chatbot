@@ -183,12 +183,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })),
 
   setPanelRatio: (ratio) =>
-    set((state) => ({
-      workspace: {
-        ...state.workspace,
-        panelRatio: ratio,
-      },
-    })),
+    set((state) => {
+      const [a, b] = state.workspace.panelRatio;
+      if (ratio[0] === a && ratio[1] === b) return state;
+      return {
+        workspace: {
+          ...state.workspace,
+          panelRatio: ratio,
+        },
+      };
+    }),
 
   toggleChatPane: () =>
     set((state) => ({

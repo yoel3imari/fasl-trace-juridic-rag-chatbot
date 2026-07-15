@@ -72,7 +72,7 @@ function DataTable<T>({
   return (
     <div
       data-slot="data-table"
-      className={cn("flex flex-col overflow-hidden rounded-lg border border-border", className)}
+      className={cn("flex flex-col rounded-lg border border-border", className)}
     >
       <div className="overflow-x-auto">
         <table className="w-full caption-bottom text-sm">

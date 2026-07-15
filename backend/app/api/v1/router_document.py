@@ -269,6 +269,7 @@ async def process_document_endpoint(
         for chunk in extraction.chunks:
             db_chunk = DocumentChunk(
                 document_id=document_id,
+                user_id=current_user["user_id"],
                 chunk_index=chunk.block_index,
                 page_number=chunk.page,
                 text=chunk.text,
@@ -503,6 +504,7 @@ async def process_system_document_endpoint(
         for chunk in extraction.chunks:
             db_chunk = DocumentChunk(
                 document_id=document_id,
+                user_id=admin["user_id"],
                 chunk_index=chunk.block_index,
                 page_number=chunk.page,
                 text=chunk.text,
@@ -685,5 +687,44 @@ async def get_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found or access denied.",
         )
-
     return document
+
+
+@router.delete(
+    "/documents/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Document",
+    description="Delete a document, its chunks, the source file, and vector embeddings.",
+)
+async def delete_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db_session_with_rls),
+    current_user: dict = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Document)
+        .where(Document.id == document_id)
+        .where(Document.user_id == current_user["user_id"])
+    )
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found or access denied.",
+        )
+
+    try:
+        from app.services.vector_store_service import delete_document_chunks
+
+        user_id_int = abs(hash(str(current_user["user_id"])))
+        doc_id_int = abs(hash(str(document_id))) & 0x7FFFFFFFFFFFFFFF
+        delete_document_chunks(user_id_int, doc_id_int)
+    except Exception as exc:
+        logger.warning("Failed to delete vector chunks for document %s: %s", document_id, exc)
+
+    pdf_path = UPLOAD_DIR / document.filename
+    await _cleanup_file_async(pdf_path)
+
+    await db.delete(document)
+    await db.commit()

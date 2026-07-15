@@ -108,6 +108,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/legal_rag
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:password@db_test:5432/test_legal_rag
+      MILVUS_HOST: milvus
       OPENAPI_OUTPUT_FILE: ./shared-data/openapi.json
     volumes:
       # Mount source code for hot-reload
@@ -164,6 +165,19 @@ services:
       - "5433:5432"
     networks:
       - legal-rag-net
+
+  # ── Attu (Milvus GUI) ────────────────────────────────────────────────
+  attu:
+    image: zilliz/attu:v2.4
+    container_name: legal-rag-attu
+    ports:
+      - "8001:3000"
+    environment:
+      MILVUS_URL: milvus:19530
+    networks:
+      - legal-rag-net
+    depends_on:
+      - milvus
 
   # ── MailHog (dev email) ────────────────────────────────────────────────
   mailhog:

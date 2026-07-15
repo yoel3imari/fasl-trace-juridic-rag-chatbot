@@ -77,3 +77,13 @@ export async function getDocument(id: string): Promise<DocumentResponse> {
   if (error) throw error;
   return data;
 }
+
+export async function deleteDocument(id: string): Promise<void> {
+  const token = await getAuthToken();
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const res = await fetch(`${baseUrl}/api/v1/documents/${id}`, {
+    method: "DELETE",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`Failed to delete document: ${res.status}`);
+}

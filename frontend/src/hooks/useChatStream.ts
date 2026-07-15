@@ -7,16 +7,14 @@ import { createClient } from "@/lib/supabase";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export function useChatStream() {
-  const {
-    appendToken,
-    setMessageCitations,
-    updateProcessingStep,
-    setProcessingSteps,
-    setStreamError,
-    finalizeMessage,
-    setStreamingStatus,
-    getCurrentStreamingMessageId,
-  } = useChatStore();
+  const appendToken = useChatStore((s) => s.appendToken);
+  const setMessageCitations = useChatStore((s) => s.setMessageCitations);
+  const updateProcessingStep = useChatStore((s) => s.updateProcessingStep);
+  const setProcessingSteps = useChatStore((s) => s.setProcessingSteps);
+  const setStreamError = useChatStore((s) => s.setStreamError);
+  const finalizeMessage = useChatStore((s) => s.finalizeMessage);
+  const setStreamingStatus = useChatStore((s) => s.setStreamingStatus);
+  const getCurrentStreamingMessageId = useChatStore((s) => s.getCurrentStreamingMessageId);
 
   const abortRef = useRef<() => void>(() => {});
 

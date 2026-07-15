@@ -1,10 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { MoreHorizontal, Plus, FileText, FolderOpen, XCircle } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { MoreHorizontal, Plus, FileText, FolderOpen, XCircle, Trash2 } from "lucide-react"
 
 import { api, type DocumentResponse, type DocumentListResponse } from "@/lib/data"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { DataTable, type Column } from "@/components/ui/data-table/DataTable"
 import { DataTableFilters, type FilterConfig } from "@/components/ui/data-table/DataTableFilters"
@@ -108,8 +107,11 @@ function DocumentTable() {
   const [sortKey, setSortKey] = useState<string | undefined>("updated_at")
   const [sortDir, setSortDir] = useState<"asc" | "desc" | undefined>("desc")
 
-  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
-  const dropdownRef = useRef<HTMLDivElement | null>(null)
+  const [dropdownAnchor, setDropdownAnchor] = useState<{
+    doc: DocumentResponse
+    top: number
+    right: number
+  } | null>(null)
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [errorDoc, setErrorDoc] = useState<DocumentResponse | null>(null)
@@ -117,6 +119,8 @@ function DocumentTable() {
   const [assignDoc, setAssignDoc] = useState<DocumentResponse | null>(null)
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [detailDoc, setDetailDoc] = useState<DocumentResponse | null>(null)
+  const [deleteDocId, setDeleteDocId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const fetchDocuments = useCallback(async () => {
     setLoading(true)
@@ -164,16 +168,29 @@ function DocumentTable() {
   }, [documents, sortKey, sortDir])
 
   useEffect(() => {
+    if (!dropdownAnchor) return
     function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpenDropdownId(null)
+      const target = e.target as Node
+      const dropdown = document.getElementById("doc-table-dropdown")
+      if (dropdown && !dropdown.contains(target)) {
+        setDropdownAnchor(null)
       }
     }
-    if (openDropdownId) {
-      document.addEventListener("mousedown", handleClickOutside)
-      return () => document.removeEventListener("mousedown", handleClickOutside)
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [dropdownAnchor])
+
+  // Recalculate position on scroll/resize to keep dropdown anchored
+  useEffect(() => {
+    if (!dropdownAnchor) return
+    const handleMove = () => setDropdownAnchor(null)
+    window.addEventListener("scroll", handleMove, true)
+    window.addEventListener("resize", handleMove)
+    return () => {
+      window.removeEventListener("scroll", handleMove, true)
+      window.removeEventListener("resize", handleMove)
     }
-  }, [openDropdownId])
+  }, [dropdownAnchor])
 
   const handleFilterChange = useCallback((key: string, value: string) => {
     setPage(1)
@@ -198,7 +215,7 @@ function DocumentTable() {
   }, [])
 
   const handleProcess = useCallback(async (id: string) => {
-    setOpenDropdownId(null)
+    setDropdownAnchor(null)
     try {
       await api.processDocument(id)
       const skip = (page - 1) * pageSize
@@ -225,21 +242,34 @@ function DocumentTable() {
   }, [fetchDocuments])
 
   const handleViewError = useCallback((doc: DocumentResponse) => {
-    setOpenDropdownId(null)
+    setDropdownAnchor(null)
     setErrorDoc(doc)
     setErrorDialogOpen(true)
   }, [])
 
   const handleAssignToCollection = useCallback((doc: DocumentResponse) => {
-    setOpenDropdownId(null)
+    setDropdownAnchor(null)
     setAssignDoc(doc)
     setAssignDialogOpen(true)
   }, [])
 
   const handleViewDetails = useCallback((doc: DocumentResponse) => {
-    setOpenDropdownId(null)
+    setDropdownAnchor(null)
     setDetailDoc(doc)
   }, [])
+
+  const handleDelete = useCallback(async () => {
+    if (!deleteDocId) return
+    setDeleting(true)
+    try {
+      await api.deleteDocument(deleteDocId)
+      setDeleteDocId(null)
+      fetchDocuments()
+    } catch {
+    } finally {
+      setDeleting(false)
+    }
+  }, [deleteDocId, fetchDocuments])
 
   const filters: FilterConfig[] = [
     {
@@ -332,53 +362,26 @@ function DocumentTable() {
       header: "",
       width: "5%",
       render: (doc) => (
-        <div className="relative flex justify-end" ref={dropdownRef}>
+        <div className="relative flex justify-end">
           <button
             onClick={(e) => {
               e.stopPropagation()
-              setOpenDropdownId(openDropdownId === doc.id ? null : doc.id)
+              const rect = e.currentTarget.getBoundingClientRect()
+              if (dropdownAnchor?.doc.id === doc.id) {
+                setDropdownAnchor(null)
+              } else {
+                setDropdownAnchor({
+                  doc,
+                  top: rect.bottom + 4,
+                  right: document.documentElement.clientWidth - rect.right,
+                })
+              }
             }}
             className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             aria-label="Actions"
           >
             <MoreHorizontal className="size-4" />
           </button>
-          {openDropdownId === doc.id && (
-            <div className="absolute right-0 top-full z-40 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-lg">
-              {(doc.status === "pending" || doc.status === "failed") && (
-                <button
-                  onClick={() => handleProcess(doc.id)}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
-                >
-                  <FolderOpen className="size-3.5 text-muted-foreground" />
-                  Process
-                </button>
-              )}
-              <button
-                onClick={() => handleAssignToCollection(doc)}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
-              >
-                <FolderOpen className="size-3.5 text-muted-foreground" />
-                Assign to Collection
-              </button>
-              <button
-                onClick={() => handleViewDetails(doc)}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
-              >
-                <FileText className="size-3.5 text-muted-foreground" />
-                View Details
-              </button>
-              {doc.status === "failed" && (
-                <button
-                  onClick={() => handleViewError(doc)}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
-                >
-                  <XCircle className="size-3.5 text-rose-400" />
-                  View Error
-                </button>
-              )}
-            </div>
-          )}
         </div>
       ),
     },
@@ -450,6 +453,83 @@ function DocumentTable() {
           document={detailDoc}
           onClose={() => setDetailDoc(null)}
         />
+      )}
+
+      {deleteDocId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => !deleting && setDeleteDocId(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-2 text-base font-semibold text-foreground">Delete Document</h3>
+            <p className="text-sm text-muted-foreground">
+              This will permanently delete the document, its chunks, and vector embeddings. This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="outline" size="sm" disabled={deleting} onClick={() => setDeleteDocId(null)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" disabled={deleting} onClick={handleDelete}>
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dropdownAnchor && (
+        <div
+          id="doc-table-dropdown"
+          style={{ position: "fixed", top: dropdownAnchor.top, right: dropdownAnchor.right, zIndex: 50 }}
+          className="min-w-[180px] overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-lg"
+        >
+          {(dropdownAnchor.doc.status === "pending" || dropdownAnchor.doc.status === "failed") && (
+            <button
+              onClick={() => handleProcess(dropdownAnchor.doc.id)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
+            >
+              <FolderOpen className="size-3.5 text-muted-foreground" />
+              Process
+            </button>
+          )}
+          <button
+            onClick={() => handleAssignToCollection(dropdownAnchor.doc)}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
+          >
+            <FolderOpen className="size-3.5 text-muted-foreground" />
+            Assign to Collection
+          </button>
+          <button
+            onClick={() => handleViewDetails(dropdownAnchor.doc)}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            View Details
+          </button>
+          {dropdownAnchor.doc.status === "failed" && (
+            <button
+              onClick={() => handleViewError(dropdownAnchor.doc)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-muted"
+            >
+              <XCircle className="size-3.5 text-rose-400" />
+              View Error
+            </button>
+          )}
+          <div className="my-1 border-t border-border" />
+          <button
+            onClick={() => {
+              setDeleteDocId(dropdownAnchor.doc.id)
+              setDropdownAnchor(null)
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="size-3.5 text-destructive/70" />
+            Delete
+          </button>
+        </div>
       )}
     </div>
   )

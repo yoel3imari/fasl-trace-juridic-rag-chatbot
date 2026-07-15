@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { ArrowDown } from "lucide-react";
@@ -8,7 +8,18 @@ import { useChatStore } from "@/store/useChatStore";
 import { MessageBubble } from "./MessageBubble";
 
 export function MessageList() {
-  const messages = useChatStore((s) => s.getMessages());
+  const rawMessages = useChatStore((s) => s.workspace.messages);
+  const messages = useMemo(
+    () =>
+      [...rawMessages].sort((a, b) => {
+        const aTime = new Date(a.timestamp).getTime();
+        const bTime = new Date(b.timestamp).getTime();
+        if (Number.isNaN(aTime)) return 1;
+        if (Number.isNaN(bTime)) return -1;
+        return aTime - bTime;
+      }),
+    [rawMessages]
+  );
   const streamingStatus = useChatStore((s) => s.workspace.streamingStatus);
   const direction = useChatStore((s) => s.workspace.direction);
 

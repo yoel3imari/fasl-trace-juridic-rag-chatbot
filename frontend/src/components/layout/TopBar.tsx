@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { ChevronDown, LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase";
+import { signOut } from "@/components/actions/auth-actions";
 
 const pathLabels: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -18,7 +19,6 @@ function getBreadcrumb(pathname: string): string {
 
 export function TopBar() {
   const pathname = usePathname();
-  const router = useRouter();
   const breadcrumb = getBreadcrumb(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -32,10 +32,8 @@ export function TopBar() {
   }, []);
 
   const handleSignOut = useCallback(async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-  }, [router]);
+    await signOut();
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

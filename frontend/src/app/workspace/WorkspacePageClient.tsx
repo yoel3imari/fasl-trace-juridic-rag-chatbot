@@ -1,12 +1,15 @@
 "use client";
 
+import { AuthGuard } from "@/components/auth/AuthGuard";
 import { WorkspaceLayout } from "@/components/features/workspace";
 import { DirectionalLayoutSwitcher } from "@/components/features/workspace/DirectionalLayoutSwitcher";
 
 export function WorkspacePageClient() {
   return (
-    <DirectionalLayoutSwitcher>
-      <WorkspaceLayout />
-    </DirectionalLayoutSwitcher>
+    <AuthGuard>
+      <DirectionalLayoutSwitcher>
+        <WorkspaceLayout />
+      </DirectionalLayoutSwitcher>
+    </AuthGuard>
   );
 }

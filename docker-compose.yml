@@ -125,32 +125,32 @@ services:
         condition: service_healthy
 
   # ── Next.js Frontend (dev — HMR) ────────────────────────────────────────
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    container_name: legal-rag-web
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      OPENAPI_OUTPUT_FILE: ./shared-data/openapi.json
-    volumes:
-      # Mount source code for HMR
-      - ./frontend:/app
-      # Persist node_modules across restarts
-      - frontend_node_modules:/app/node_modules
-      # Persist .next build cache for faster dev reboots
-      - frontend_next:/app/.next
-      # Shared directory for OpenAPI schema exchange
-      - ./local-shared-data:/app/shared-data
-    networks:
-      - legal-rag-net
-    depends_on:
-      - backend
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile.dev
+  #   container_name: legal-rag-web
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     NEXT_PUBLIC_API_URL: http://localhost:8000
+  #     OPENAPI_OUTPUT_FILE: ./shared-data/openapi.json
+  #   volumes:
+  #     # Mount source code for HMR
+  #     - ./frontend:/app
+  #     # Persist node_modules across restarts
+  #     - frontend_node_modules:/app/node_modules
+  #     # Persist .next build cache for faster dev reboots
+  #     - frontend_next:/app/.next
+  #     # Shared directory for OpenAPI schema exchange
+  #     - ./local-shared-data:/app/shared-data
+  #   networks:
+  #     - legal-rag-net
+  #   depends_on:
+  #     - backend
 
   # ── Test Database ──────────────────────────────────────────────────────
   db_test:

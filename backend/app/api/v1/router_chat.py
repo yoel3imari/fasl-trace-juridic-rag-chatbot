@@ -194,28 +194,27 @@ async def _chat_stream_generator(
 
     yield _sse_event({"type": "processing_step", "step": "retrieval", "status": "complete"})
 
-    # ── 3. Handle abstention ─────────────────────────────────────────────
-    if result.abstained:
-        yield _sse_event({
-            "type": "error",
-            "content": "I don't have sufficient information to answer this question "
-                       "based on the available documents.",
-        })
-        return
+    # ── 3. Build system prompt from retrieved chunks ─────────────────────
+    if result.chunks:
+        system_prompt = (
+            "You are a legal analysis assistant. Answer the user's question based "
+            "ONLY on the provided document context.\n\n"
+            f"Context:\n{_format_context(result.chunks)}\n\n"
+            "Instructions:\n"
+            "- For each factual claim, cite the source as [Source N].\n"
+            "- If the context does not contain enough information, say so clearly.\n"
+            "- List all cited sources at the end of your response.\n\n"
+            f"Sources:\n{_format_sources(result.citations)}"
+        )
+    else:
+        system_prompt = (
+            "You are a helpful legal document assistant. "
+            "If the user asks a question related to their documents, let them know "
+            "you currently don't have relevant document context loaded. "
+            "Otherwise, respond naturally as a helpful assistant."
+        )
 
-    # ── 4. Build system prompt from retrieved chunks ─────────────────────
-    system_prompt = (
-        "You are a legal analysis assistant. Answer the user's question based "
-        "ONLY on the provided document context.\n\n"
-        f"Context:\n{_format_context(result.chunks)}\n\n"
-        "Instructions:\n"
-        "- For each factual claim, cite the source as [Source N].\n"
-        "- If the context does not contain enough information, say so clearly.\n"
-        "- List all cited sources at the end of your response.\n\n"
-        f"Sources:\n{_format_sources(result.citations)}"
-    )
-
-    # ── 5. Resolve generation model ──────────────────────────────────────
+    # ── 4. Resolve generation model ──────────────────────────────────────
     yield _sse_event({"type": "processing_step", "step": "generation", "status": "active"})
 
     model_config = await resolve_active_model(db, UUID(current_user["user_id"]), "generation")
@@ -226,7 +225,7 @@ async def _chat_stream_generator(
         })
         return
 
-    # ── 6. Stream LLM tokens ─────────────────────────────────────────────
+    # ── 5. Stream LLM tokens ─────────────────────────────────────────────
     try:
         async for token in _stream_llm(model_config, system_prompt, resolved_query):
             yield _sse_event({"type": "token", "content": token})
@@ -236,7 +235,7 @@ async def _chat_stream_generator(
 
     yield _sse_event({"type": "processing_step", "step": "generation", "status": "complete"})
 
-    # ── 7. Stream citations ──────────────────────────────────────────────
+    # ── 6. Stream citations ──────────────────────────────────────────────
     citations_data = [
         {
             "source_index": c.source_index,
@@ -248,7 +247,7 @@ async def _chat_stream_generator(
     ]
     yield _sse_event({"type": "citation", "citations": citations_data})
 
-    # ── 8. Coverage warning ──────────────────────────────────────────────
+    # ── 7. Coverage warning ──────────────────────────────────────────────
     if result.coverage_warning:
         yield _sse_event({
             "type": "warning",
@@ -256,7 +255,7 @@ async def _chat_stream_generator(
                        "covered by the available documents.",
         })
 
-    # ── 9. Done event ────────────────────────────────────────────────────
+    # ── 8. Done event ────────────────────────────────────────────────────
     yield _sse_event({"type": "done"})
 
 

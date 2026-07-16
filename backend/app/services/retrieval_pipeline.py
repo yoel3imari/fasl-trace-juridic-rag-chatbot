@@ -328,45 +328,25 @@ async def retrieve(
     query_plan = _route_query(query)
 
     # ── Stages 2 & 3: Embed + Hybrid Search ────────────────────────────
+    dense_vec: list[float] | None = None
+    sparse_vec: dict | None = None
     try:
         dense_vec, sparse_vec = encode_query(query)
     except RuntimeError as e:
         logger.error("Query encoding failed: %s", e)
-        return RetrievalResult(
-            chunks=[],
-            citations=[],
-            abstained=True,
-            coverage_warning=False,
-            query_plan=query_plan,
-        )
 
-    try:
-        candidates = hybrid_search(
-            partition_names=get_search_partitions(user_id_int),
-            dense_vec=dense_vec,
-            sparse_vec=sparse_vec,
-            query_text=query,
-            top_k=20,  # retrieve extra candidates for reranking
-        )
-    except Exception as e:
-        logger.error("Hybrid search failed: %s", e)
-        return RetrievalResult(
-            chunks=[],
-            citations=[],
-            abstained=True,
-            coverage_warning=False,
-            query_plan=query_plan,
-        )
-
-    if not candidates:
-        logger.info("Hybrid search returned zero candidates — abstaining")
-        return RetrievalResult(
-            chunks=[],
-            citations=[],
-            abstained=True,
-            coverage_warning=False,
-            query_plan=query_plan,
-        )
+    candidates: list[dict] = []
+    if dense_vec is not None and sparse_vec is not None:
+        try:
+            candidates = hybrid_search(
+                partition_names=get_search_partitions(user_id_int),
+                dense_vec=dense_vec,
+                sparse_vec=sparse_vec,
+                query_text=query,
+                top_k=20,  # retrieve extra candidates for reranking
+            )
+        except Exception as e:
+            logger.error("Hybrid search failed: %s", e)
 
     # ── Stage 4: Knowledge-layer injection ─────────────────────────────
     enriched = _inject_knowledge(candidates, query_plan)
@@ -374,22 +354,8 @@ async def retrieve(
     # ── Stage 5: FlashRank reranker ────────────────────────────────────
     reranked = _rerank(query, enriched)
 
-    # ── Stage 6: Score-threshold abstention ────────────────────────────
-    if reranked and (reranked[0].get("rerank_score", 0) or 0) < 0.4:
-        logger.info(
-            "Top reranker score %.4f < 0.4 — abstaining",
-            reranked[0].get("rerank_score", 0),
-        )
-        return RetrievalResult(
-            chunks=[],
-            citations=[],
-            abstained=True,
-            coverage_warning=False,
-            query_plan=query_plan,
-        )
-
     # Keep only the top_k
-    final_chunks = reranked[:top_k]
+    final_chunks = reranked[:top_k] if reranked else []
 
     # ── Stage 7: Citation resolver ─────────────────────────────────────
     citations: list[Citation] = []

@@ -18,7 +18,7 @@ export interface Citation {
   source_index: number;
   page: number;
   section: string | null;
-  text_snippet: string;
+  text: string;
 }
 
 export interface ChatMessage {

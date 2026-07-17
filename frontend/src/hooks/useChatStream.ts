@@ -3,6 +3,7 @@
 import { useCallback, useRef } from "react";
 import { useChatStore } from "@/store/useChatStore";
 import { createClient } from "@/lib/supabase";
+import type { Citation } from "@/store/useChatStore";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -31,7 +32,7 @@ export function useChatStream() {
         }
         case "citation": {
           const citations = Array.isArray(data.citations) ? data.citations : [];
-          setMessageCitations(messageId, citations as any[]);
+          setMessageCitations(messageId, citations as Citation[]);
           break;
         }
         case "processing_step": {

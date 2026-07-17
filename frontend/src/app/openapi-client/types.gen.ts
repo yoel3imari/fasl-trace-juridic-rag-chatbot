@@ -37,7 +37,7 @@ export type BodyUploadDocument = {
      * File
      * PDF file to upload (max 50MB)
      */
-    file: string;
+    file: Blob;
     /**
      * Language
      * Document language code: en, fr, ar
@@ -140,6 +140,14 @@ export type DocumentListResponse = {
      * Total
      */
     total: number;
+    /**
+     * Skip
+     */
+    skip?: number;
+    /**
+     * Limit
+     */
+    limit?: number;
 };
 
 /**
@@ -545,6 +553,21 @@ export type ListDocumentsData = {
          * Limit
          */
         limit?: number;
+        /**
+         * Status
+         * Filter by ingestion status
+         */
+        status?: ('pending' | 'processing' | 'processed' | 'failed') | null;
+        /**
+         * Language
+         * Filter by language code
+         */
+        language?: ('en' | 'fr' | 'ar') | null;
+        /**
+         * Search
+         * Search by filename
+         */
+        search?: string | null;
     };
     url: '/api/v1/documents/';
 };
@@ -702,6 +725,11 @@ export type ListCollectionsData = {
          * Max records to return
          */
         limit?: number;
+        /**
+         * Search
+         * Search by collection name
+         */
+        search?: string | null;
     };
     url: '/api/v1/collections/';
 };

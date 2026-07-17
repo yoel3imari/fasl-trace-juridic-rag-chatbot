@@ -9,6 +9,7 @@ import type {
 export async function listModelAssignments({
   skip,
   limit,
+  system_function,
 }: {
   skip?: number;
   limit?: number;
@@ -17,7 +18,7 @@ export async function listModelAssignments({
   const token = await getAuthToken();
   if (!token) return { items: [], total: 0, skip: skip ?? 0, limit: limit ?? 10 };
   const { data, error } = await sdk.listModelAssignments({
-    query: { skip, limit },
+    query: { skip, limit, system_function },
     headers: { Authorization: `Bearer ${token}` },
   });
   if (error) throw error;

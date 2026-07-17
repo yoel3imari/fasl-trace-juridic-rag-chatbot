@@ -574,12 +574,24 @@ async def process_system_document_endpoint(
 async def list_documents(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    status: Literal["pending", "processing", "processed", "failed"] | None = Query(None, description="Filter by ingestion status"),
+    language: Literal["en", "fr", "ar"] | None = Query(None, description="Filter by language code"),
+    search: str | None = Query(None, description="Search by filename"),
     db: AsyncSession = Depends(get_db_session_with_rls),
     current_user: dict = Depends(get_current_user),
 ):
+    filters = [Document.user_id == current_user["user_id"]]
+
+    if status:
+        filters.append(Document.status == status)
+    if language:
+        filters.append(Document.language == language)
+    if search:
+        filters.append(Document.filename.ilike(f"%{search}%"))
+
     result = await db.execute(
         select(Document)
-        .where(Document.user_id == current_user["user_id"])
+        .where(*filters)
         .order_by(Document.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -587,9 +599,7 @@ async def list_documents(
     documents = result.scalars().all()
 
     count_result = await db.execute(
-        select(func.count(Document.id)).where(
-            Document.user_id == current_user["user_id"]
-        )
+        select(func.count(Document.id)).where(*filters)
     )
     total = count_result.scalar_one()
 

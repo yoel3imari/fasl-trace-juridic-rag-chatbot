@@ -111,10 +111,17 @@ async def create_collection(
 async def list_collections(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(20, ge=1, le=100, description="Max records to return"),
+    search: str | None = Query(None, description="Search by collection name"),
     db: AsyncSession = Depends(get_db_session_with_rls),
+    current_user: dict = Depends(get_current_user),
 ):
+    filters = [Collection.user_id == current_user["user_id"]]
+    if search:
+        filters.append(Collection.name.ilike(f"%{search}%"))
+
     result = await db.execute(
         select(Collection)
+        .where(*filters)
         .order_by(Collection.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -123,6 +130,7 @@ async def list_collections(
 
     count_result = await db.execute(
         select(func.count(Collection.id))
+        .where(*filters)
     )
     total = count_result.scalar_one()
 

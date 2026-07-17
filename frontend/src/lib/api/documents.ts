@@ -9,6 +9,9 @@ import type {
 export async function listDocuments({
   skip,
   limit,
+  status,
+  language,
+  search,
 }: {
   skip?: number;
   limit?: number;
@@ -19,7 +22,7 @@ export async function listDocuments({
   const token = await getAuthToken();
   if (!token) return { documents: [], total: 0 };
   const { data, error } = await sdk.listDocuments({
-    query: { skip, limit },
+    query: { skip, limit, status, language, search },
     headers: { Authorization: `Bearer ${token}` },
   });
   if (error) throw error;
@@ -32,7 +35,7 @@ export async function uploadDocument(
 ): Promise<DocumentResponse> {
   const token = await getAuthToken();
   const { data, error } = await sdk.uploadDocument({
-    body: { file: file as unknown as string, language },
+    body: { file, language },
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
   if (error) throw error;

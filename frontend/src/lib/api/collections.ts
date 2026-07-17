@@ -10,6 +10,7 @@ import type {
 export async function listCollections({
   skip,
   limit,
+  search,
 }: {
   skip?: number;
   limit?: number;
@@ -18,7 +19,7 @@ export async function listCollections({
   const token = await getAuthToken();
   if (!token) return { collections: [], total: 0 };
   const { data, error } = await sdk.listCollections({
-    query: { skip, limit },
+    query: { skip, limit, search },
     headers: { Authorization: `Bearer ${token}` },
   });
   if (error) throw error;

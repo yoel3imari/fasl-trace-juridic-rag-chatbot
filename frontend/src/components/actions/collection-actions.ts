@@ -1,7 +1,7 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase-server";
 import {
   listCollections,
   createCollection,
@@ -14,10 +14,10 @@ import {
 import { collectionSchema } from "@/lib/definitions";
 
 async function getAuthHeaders() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("sb-access-token")?.value;
-  if (!token) return null;
-  return { Authorization: `Bearer ${token}` };
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) return null;
+  return { Authorization: `Bearer ${session.access_token}` };
 }
 
 export async function fetchCollections(skip: number = 0, limit: number = 20) {

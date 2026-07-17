@@ -65,3 +65,5 @@ class DocumentListResponse(BaseModel):
 
     documents: list[DocumentResponse]
     total: int
+    skip: int = 0
+    limit: int = 20

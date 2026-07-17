@@ -1,7 +1,7 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase-server";
 import {
   listDocuments,
   uploadDocument,
@@ -12,10 +12,10 @@ import { documentSchema } from "@/lib/definitions";
 import type { ListDocumentsData, GetIngestionStatusData } from "@/app/clientService";
 
 async function getAuthHeaders() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("sb-access-token")?.value;
-  if (!token) return null;
-  return { Authorization: `Bearer ${token}` };
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) return null;
+  return { Authorization: `Bearer ${session.access_token}` };
 }
 
 export async function fetchDocuments(skip: number = 0, limit: number = 20) {
@@ -45,13 +45,9 @@ export async function uploadDocumentAction(prevState: unknown, formData: FormDat
   const file = formData.get("file") as File;
   if (!file) return { errors: { file: ["File is required"] } };
 
-  const uploadFormData = new FormData();
-  uploadFormData.append("file", file);
-  uploadFormData.append("language", validated.data.language);
-
   const { data, error } = await uploadDocument({
     headers,
-    body: uploadFormData as any,
+    body: { file, language: validated.data.language },
   });
   if (error) return { error: String(error) };
   revalidatePath("/dashboard");
